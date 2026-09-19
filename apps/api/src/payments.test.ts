@@ -37,10 +37,11 @@ function fakeStore(): PaymentStore {
 }
 
 const input = { organizationId: 'org-1', holdId: 'hold-1', customerRef: '+6281', proofKey: 'payments/proof.jpg', idempotencyKey: 'payment-1' }
+const silentNotify = () => {}
 
 describe('Payment service', () => {
   it('submits valid proof without exposing the protected storage key and retries idempotently', async () => {
-    const service = createPaymentService(fakeStore())
+    const service = createPaymentService(fakeStore(), silentNotify)
     const first = await service.submit(input)
     const retry = await service.submit(input)
     expect(first).toEqual(retry)
@@ -49,12 +50,12 @@ describe('Payment service', () => {
   })
 
   it('rejects invalid proof keys', async () => {
-    const service = createPaymentService(fakeStore())
+    const service = createPaymentService(fakeStore(), silentNotify)
     await expect(service.submit({ ...input, proofKey: '../private.jpg' })).rejects.toThrow('proofKey is invalid')
   })
 
   it('allows only an Owner in the same Travel business to review Payment', async () => {
-    const service = createPaymentService(fakeStore())
+    const service = createPaymentService(fakeStore(), silentNotify)
     const payment = await service.submit(input)
     await expect(service.review({ userId: 'customer-1', organizationId: 'org-1' }, payment.id, { status: 'APPROVED' })).rejects.toThrow('Owner access required')
     await expect(service.listPending({ userId: 'owner-1', organizationId: 'org-2' })).rejects.toThrow('Owner access required')
@@ -65,7 +66,7 @@ describe('Payment service', () => {
   })
 
   it('requires a rejection reason and records it', async () => {
-    const service = createPaymentService(fakeStore())
+    const service = createPaymentService(fakeStore(), silentNotify)
     const payment = await service.submit({ ...input, idempotencyKey: 'payment-2' })
     await expect(service.review({ userId: 'owner-1', organizationId: 'org-1' }, payment.id, { status: 'REJECTED' })).rejects.toThrow('Rejection reason is required')
     const rejected = await service.review({ userId: 'owner-1', organizationId: 'org-1' }, payment.id, { status: 'REJECTED', reason: 'Amount does not match' })

@@ -1,12 +1,13 @@
 import type { z } from 'zod'
 import { notifyEmail } from './notify.email'
 import { notifyWeb } from './notify.web'
+import { notifyWhatsApp } from './notify.whatsapp'
 import { postExport } from './post.export'
 import type { AnyTaskDefinition } from '../registry'
 
 export * from '../registry'
 
-export const tasks = [notifyEmail, postExport, notifyWeb] as const
+export const tasks = [notifyEmail, notifyWhatsApp, postExport, notifyWeb] as const
 
 type TaskList = (typeof tasks)[number]
 

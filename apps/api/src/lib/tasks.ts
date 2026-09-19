@@ -38,8 +38,10 @@ export async function enqueueTask<TId extends TaskId>(
   const data = definition.payload.parse(payload)
 
   const queue = await getBoss()
-
-  return queue.send(taskId, data)
+  const singletonKey = typeof data === 'object' && data !== null && 'eventKey' in data
+    ? String((data as { eventKey: string }).eventKey)
+    : undefined
+  return queue.send(taskId, data, singletonKey ? { singletonKey, singletonSeconds: 24 * 60 * 60 } : undefined)
 }
 
 export async function stopTasks() {

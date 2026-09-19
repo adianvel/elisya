@@ -1,6 +1,8 @@
 import { pool, zenstack } from '@repo/db'
 import { ulid } from 'ulid'
 import { materializeBooking } from './bookings'
+import { notifyWhatsApp } from './notifications'
+import type { NotificationSink } from './holds'
 
 export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
 
@@ -162,11 +164,13 @@ async function requireOwner(actor: PaymentActor, paymentStore: PaymentStore): Pr
   if (!await paymentStore.isOwner(actor.userId, actor.organizationId)) throw new Error('Owner access required')
 }
 
-export function createPaymentService(paymentStore: PaymentStore = store) {
+export function createPaymentService(paymentStore: PaymentStore = store, notify: NotificationSink = notifyWhatsApp) {
   return {
     async submit(input: SubmitPaymentInput): Promise<Payment> {
       validate(input)
-      return publicPayment(await paymentStore.submit(input))
+      const payment = publicPayment(await paymentStore.submit(input))
+      notify({ eventKey: `payment:${payment.id}:submitted`, customerRef: payment.customerRef, text: `Payment proof received for Hold ${payment.holdId}.` })
+      return payment
     },
 
     async listPending(actor: PaymentActor): Promise<Payment[]> {
@@ -178,7 +182,9 @@ export function createPaymentService(paymentStore: PaymentStore = store) {
       await requireOwner(actor, paymentStore)
       if (review.status === 'REJECTED' && !review.reason?.trim()) throw new Error('Rejection reason is required')
       if (review.status === 'APPROVED' && review.reason) throw new Error('Approval cannot include a rejection reason')
-      return publicPayment(await paymentStore.review(actor, id, review, now))
+      const payment = publicPayment(await paymentStore.review(actor, id, review, now))
+      if (payment.status === 'APPROVED') notify({ eventKey: `booking:${payment.id}:confirmed`, customerRef: payment.customerRef, text: 'Your payment was approved and your Booking is confirmed.' })
+      return payment
     },
 
     async getProof(actor: PaymentActor, id: string): Promise<string> {

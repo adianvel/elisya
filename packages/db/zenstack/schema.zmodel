@@ -99,6 +99,7 @@ model Organization {
     invoices          Invoice[]
     auditEvents       AuditEvent[]
     vehicles          Vehicle[]
+    integrationEvents IntegrationEvent[]
 
     @@map('organization')
 }
@@ -272,6 +273,20 @@ model Vehicle {
     @@unique([organizationId, plateNumber])
     @@index([organizationId, status])
     @@map('vehicle')
+}
+
+model IntegrationEvent {
+    id             String       @id
+    organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+    organizationId String
+    source         String
+    messageId      String
+    customerRef    String
+    response       String
+    createdAt      DateTime     @default(now())
+
+    @@index([organizationId, customerRef, createdAt])
+    @@map('integrationEvent')
 }
 
 model OrganizationRole {

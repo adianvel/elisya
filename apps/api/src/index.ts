@@ -13,6 +13,7 @@ import { holds } from './holds';
 import { payments } from './payments';
 import { bookings } from './bookings';
 import { dashboard } from './dashboard';
+import { handleWhatsAppInbound, mapWhatsAppInbound } from './integrations';
 import { enqueueTask, stopTasks } from "./lib/tasks";
 
 const AuthService = new Elysia({ name: "better-auth" })
@@ -350,6 +351,21 @@ const app = new Elysia()
       }, {
         query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
         auth: true,
+      })
+  )
+  .group('/integrations', (app) =>
+    app
+      .post('/n8n/whatsapp', async ({ request, body, status }) => {
+        const secret = process.env.N8N_WEBHOOK_SECRET
+        const authorization = request.headers.get('authorization')
+        if (!secret || authorization !== `Bearer ${secret}`) return status(401)
+        try {
+          return handleWhatsAppInbound(configuredOrganizationId(), mapWhatsAppInbound(body))
+        } catch (error) {
+          return status(400, error instanceof Error ? error.message : 'Invalid WhatsApp payload')
+        }
+      }, {
+        body: t.Record(t.String(), t.Unknown()),
       })
   )
   .use(chat)

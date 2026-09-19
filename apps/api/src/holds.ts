@@ -1,5 +1,6 @@
 import { pool } from '@repo/db'
 import { ulid } from 'ulid'
+import { notifyWhatsApp } from './notifications'
 
 export type HoldStatus = 'ACTIVE' | 'EXPIRED'
 
@@ -29,6 +30,7 @@ export type HoldStore = {
 }
 
 export const HOLD_TTL_MS = 15 * 60 * 1000
+export type NotificationSink = (input: { eventKey: string; customerRef: string; text: string }) => void
 
 function validate(input: CreateHoldInput): void {
   if (!input.organizationId || !input.tripId || !input.customerRef || !input.idempotencyKey) {
@@ -123,11 +125,13 @@ const store: HoldStore = {
   },
 }
 
-export function createHoldService(holdStore: HoldStore = store) {
+export function createHoldService(holdStore: HoldStore = store, notify: NotificationSink = notifyWhatsApp) {
   return {
     async create(input: CreateHoldInput): Promise<Hold> {
       validate(input)
-      return holdStore.create(input)
+      const hold = await holdStore.create(input)
+      notify({ eventKey: `hold:${hold.id}`, customerRef: hold.customerRef, text: `Your Hold ${hold.id} is active until ${hold.expiresAt.toISOString()}.` })
+      return hold
     },
 
     expire(organizationId: string, now = new Date()): Promise<number> {

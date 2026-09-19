@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { createHoldService, type Hold, type HoldStore } from './holds'
 
 const tripId = 'trip-1'
+const silentNotify = () => {}
 
 function fakeStore(quota = 3): HoldStore {
   const rows: Hold[] = []
@@ -39,7 +40,7 @@ function fakeStore(quota = 3): HoldStore {
 
 describe('Hold service', () => {
   it('creates a hold and returns the same hold for an idempotent retry', async () => {
-    const service = createHoldService(fakeStore())
+    const service = createHoldService(fakeStore(), silentNotify)
     const input = { organizationId: 'org-1', tripId, customerRef: '+6281', seatCount: 2, idempotencyKey: 'request-1' }
     const first = await service.create(input)
     const retry = await service.create(input)
@@ -48,7 +49,7 @@ describe('Hold service', () => {
   })
 
   it('rejects invalid seat counts and overbooking, including concurrent requests', async () => {
-    const service = createHoldService(fakeStore(2))
+    const service = createHoldService(fakeStore(2), silentNotify)
     await expect(service.create({ organizationId: 'org-1', tripId, customerRef: 'a', seatCount: 0, idempotencyKey: 'bad' })).rejects.toThrow('seatCount must be a positive integer')
     const results = await Promise.allSettled([
       service.create({ organizationId: 'org-1', tripId, customerRef: 'a', seatCount: 2, idempotencyKey: 'a' }),
@@ -58,7 +59,7 @@ describe('Hold service', () => {
   })
 
   it('expires unpaid holds and releases their seats', async () => {
-    const service = createHoldService(fakeStore(1))
+    const service = createHoldService(fakeStore(1), silentNotify)
     const now = new Date('2026-09-19T12:00:00Z')
     const hold = await service.create({ organizationId: 'org-1', tripId, customerRef: 'a', seatCount: 1, idempotencyKey: 'a', now })
     const expired = await service.get('org-1', hold.id, new Date(now.getTime() + 901_000))

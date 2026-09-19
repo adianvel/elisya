@@ -7,6 +7,7 @@ import { configuredOrganizationId, trips } from './trips'
 import { holds } from './holds'
 import { payments } from './payments'
 import { bookings } from './bookings'
+import { guardMessage } from './integrations'
 
 function userQuestion(messages: any[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -29,9 +30,18 @@ const SYSTEM_PROMPT = [
 
 export const chat = new Elysia({ prefix: '/chat' }).post(
   '/message',
-  async ({ body }) => {
+  async ({ body, status }) => {
     const start = performance.now()
-    logger.ai.info({ question: userQuestion(body.messages), messages: body.messages.length }, 'chat request')
+    const question = userQuestion(body.messages)
+    const guard = guardMessage(question ?? '')
+    if (!guard.allowed) return status(400, guard.reason)
+    logger.ai.info({ question, messages: body.messages.length }, 'chat request')
+
+    const customerRef = body.customerRef
+    const requireCustomerRef = () => {
+      if (!customerRef) throw new Error('Customer identity is required for booking actions')
+      return customerRef
+    }
 
     const result = streamText({
       model: gateway('xiaomi/mimo-v2.5'),
@@ -46,39 +56,38 @@ export const chat = new Elysia({ prefix: '/chat' }).post(
             return trips.listAvailable({ organizationId: configuredOrganizationId() })
           },
         }),
-        create_hold: tool<{ tripId: string; customerRef: string; seatCount: number; idempotencyKey: string }, any, any>({
+        create_hold: tool<{ tripId: string; seatCount: number; idempotencyKey: string }, any, any>({
           description: 'Reserve seats on an available Trip for a Customer for 15 minutes.',
           inputSchema: zodSchema(z.object({
             tripId: z.string().min(1),
-            customerRef: z.string().min(1),
             seatCount: z.number().int().positive(),
             idempotencyKey: z.string().min(1),
           })),
           execute: (input) => holds.create({
             organizationId: configuredOrganizationId(),
             ...input,
+            customerRef: requireCustomerRef(),
           }),
         }),
-        submit_payment_proof: tool<{ holdId: string; customerRef: string; proofKey: string; idempotencyKey: string }, any, any>({
+        submit_payment_proof: tool<{ holdId: string; proofKey: string; idempotencyKey: string }, any, any>({
           description: 'Submit a Customer payment proof for an active Hold.',
           inputSchema: zodSchema(z.object({
             holdId: z.string().min(1),
-            customerRef: z.string().min(1),
             proofKey: z.string().min(1),
             idempotencyKey: z.string().min(1),
           })),
           execute: (input) => payments.submit({
             organizationId: configuredOrganizationId(),
             ...input,
+            customerRef: requireCustomerRef(),
           }),
         }),
-        get_booking_status: tool<{ bookingId: string; customerRef: string }, any, any>({
+        get_booking_status: tool<{ bookingId: string }, any, any>({
           description: 'Retrieve a Customer Booking and Invoice status.',
           inputSchema: zodSchema(z.object({
             bookingId: z.string().min(1),
-            customerRef: z.string().min(1),
           })),
-          execute: (input) => bookings.getForCustomer(configuredOrganizationId(), input.customerRef, input.bookingId),
+          execute: (input) => bookings.getForCustomer(configuredOrganizationId(), requireCustomerRef(), input.bookingId),
         }),
       },
       onFinish: ({ usage, steps }) => {
@@ -104,6 +113,7 @@ export const chat = new Elysia({ prefix: '/chat' }).post(
       {
         messages: t.Array(t.Any()),
         id: t.Optional(t.String()),
+        customerRef: t.Optional(t.String({ minLength: 1, maxLength: 255 })),
       },
       { additionalProperties: true },
     ),
