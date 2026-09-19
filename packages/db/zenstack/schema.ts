@@ -414,6 +414,12 @@ export class SchemaType implements SchemaDef {
                     type: "Trip",
                     array: true,
                     relation: { opposite: "organization" }
+                },
+                holds: {
+                    name: "holds",
+                    type: "Hold",
+                    array: true,
+                    relation: { opposite: "organization" }
                 }
             },
             attributes: [
@@ -480,6 +486,12 @@ export class SchemaType implements SchemaDef {
                     attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.literal("DRAFT") }] }] as readonly AttributeApplication[],
                     default: "DRAFT" as FieldDefault
                 },
+                holds: {
+                    name: "holds",
+                    type: "Hold",
+                    array: true,
+                    relation: { opposite: "trip" }
+                },
                 createdAt: {
                     name: "createdAt",
                     type: "DateTime",
@@ -501,6 +513,90 @@ export class SchemaType implements SchemaDef {
             idFields: ["id"],
             uniqueFields: {
                 id: { type: "String" }
+            }
+        },
+        Hold: {
+            name: "Hold",
+            fields: {
+                id: {
+                    name: "id",
+                    type: "String",
+                    id: true,
+                    attributes: [{ name: "@id" }, { name: "@default", args: [{ name: "value", value: ExpressionUtils.call("ulid") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("ulid") as FieldDefault
+                },
+                organization: {
+                    name: "organization",
+                    type: "Organization",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "holds", fields: ["organizationId"], references: ["id"], onDelete: "Cascade" }
+                },
+                organizationId: {
+                    name: "organizationId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "organization"
+                    ] as readonly string[]
+                },
+                trip: {
+                    name: "trip",
+                    type: "Trip",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("tripId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "holds", fields: ["tripId"], references: ["id"], onDelete: "Cascade" }
+                },
+                tripId: {
+                    name: "tripId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "trip"
+                    ] as readonly string[]
+                },
+                customerRef: {
+                    name: "customerRef",
+                    type: "String"
+                },
+                seatCount: {
+                    name: "seatCount",
+                    type: "Int"
+                },
+                status: {
+                    name: "status",
+                    type: "HoldStatus",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.literal("ACTIVE") }] }] as readonly AttributeApplication[],
+                    default: "ACTIVE" as FieldDefault
+                },
+                expiresAt: {
+                    name: "expiresAt",
+                    type: "DateTime"
+                },
+                idempotencyKey: {
+                    name: "idempotencyKey",
+                    type: "String"
+                },
+                createdAt: {
+                    name: "createdAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                },
+                updatedAt: {
+                    name: "updatedAt",
+                    type: "DateTime",
+                    updatedAt: true,
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }, { name: "@updatedAt" }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                }
+            },
+            attributes: [
+                { name: "@@unique", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("customerRef"), ExpressionUtils.field("idempotencyKey")]) }] },
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("tripId"), ExpressionUtils.field("status"), ExpressionUtils.field("expiresAt")]) }] },
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("customerRef"), ExpressionUtils.field("status")]) }] },
+                { name: "@@map", args: [{ name: "name", value: ExpressionUtils.literal("hold") }] }
+            ] as readonly AttributeApplication[],
+            idFields: ["id"],
+            uniqueFields: {
+                id: { type: "String" },
+                organizationId_customerRef_idempotencyKey: { organizationId: { type: "String" }, customerRef: { type: "String" }, idempotencyKey: { type: "String" } }
             }
         },
         OrganizationRole: {
@@ -915,6 +1011,13 @@ export class SchemaType implements SchemaDef {
                 DRAFT: "DRAFT",
                 PUBLISHED: "PUBLISHED",
                 ARCHIVED: "ARCHIVED"
+            }
+        },
+        HoldStatus: {
+            name: "HoldStatus",
+            values: {
+                ACTIVE: "ACTIVE",
+                EXPIRED: "EXPIRED"
             }
         },
         PostStatus: {

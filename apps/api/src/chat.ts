@@ -4,6 +4,7 @@ import { gateway } from '@ai-sdk/gateway'
 import { z } from 'zod'
 import { logger } from '@repo/logger'
 import { configuredOrganizationId, trips } from './trips'
+import { holds } from './holds'
 
 function userQuestion(messages: any[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -42,6 +43,19 @@ export const chat = new Elysia({ prefix: '/chat' }).post(
           execute: () => {
             return trips.listAvailable({ organizationId: configuredOrganizationId() })
           },
+        }),
+        create_hold: tool<{ tripId: string; customerRef: string; seatCount: number; idempotencyKey: string }, any, any>({
+          description: 'Reserve seats on an available Trip for a Customer for 15 minutes.',
+          inputSchema: zodSchema(z.object({
+            tripId: z.string().min(1),
+            customerRef: z.string().min(1),
+            seatCount: z.number().int().positive(),
+            idempotencyKey: z.string().min(1),
+          })),
+          execute: (input) => holds.create({
+            organizationId: configuredOrganizationId(),
+            ...input,
+          }),
         }),
       },
       onFinish: ({ usage, steps }) => {

@@ -9,6 +9,7 @@ import { logger, readLogs } from '@repo/logger';
 import * as storage from '@repo/storage';
 import { chat } from './chat';
 import { configuredOrganizationId, trips } from './trips';
+import { holds } from './holds';
 import { enqueueTask, stopTasks } from "./lib/tasks";
 
 const AuthService = new Elysia({ name: "better-auth" })
@@ -237,6 +238,29 @@ const app = new Elysia()
           status: t.Optional(t.Union([t.Literal('DRAFT'), t.Literal('PUBLISHED'), t.Literal('ARCHIVED')])),
         }),
         auth: true,
+      })
+  )
+  .group('/holds', (app) =>
+    app
+      .post('/', ({ body }) => holds.create({
+        organizationId: configuredOrganizationId(),
+        tripId: body.tripId,
+        customerRef: body.customerRef,
+        seatCount: body.seatCount,
+        idempotencyKey: body.idempotencyKey,
+      }), {
+        body: t.Object({
+          tripId: t.String({ minLength: 1 }),
+          customerRef: t.String({ minLength: 1, maxLength: 255 }),
+          seatCount: t.Integer({ minimum: 1 }),
+          idempotencyKey: t.String({ minLength: 1, maxLength: 255 }),
+        }),
+      })
+      .get('/:id', async ({ params }) => {
+        const hold = await holds.get(configuredOrganizationId(), params.id)
+        return hold ?? { error: 'Hold not found' }
+      }, {
+        params: t.Object({ id: t.String({ minLength: 1 }) }),
       })
   )
   .use(chat)
