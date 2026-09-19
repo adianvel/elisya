@@ -12,6 +12,7 @@ import { configuredOrganizationId, trips } from './trips';
 import { holds } from './holds';
 import { payments } from './payments';
 import { bookings } from './bookings';
+import { dashboard } from './dashboard';
 import { enqueueTask, stopTasks } from "./lib/tasks";
 
 const AuthService = new Elysia({ name: "better-auth" })
@@ -330,6 +331,25 @@ const app = new Elysia()
       }, {
         params: t.Object({ id: t.String({ minLength: 1 }) }),
         query: t.Object({ customerRef: t.String({ minLength: 1, maxLength: 255 }) }),
+      })
+  )
+  .group('/dashboard', (app) =>
+    app
+      .get('/operations', ({ query, user, members, status }) => {
+        const actor = ownerActor(user, query.organizationId, members)
+        if (!actor) return status(403)
+        return dashboard.operations(actor)
+      }, {
+        query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+        auth: true,
+      })
+      .get('/moneyflow', ({ query, user, members, status }) => {
+        const actor = ownerActor(user, query.organizationId, members)
+        if (!actor) return status(403)
+        return dashboard.moneyflow(actor)
+      }, {
+        query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+        auth: true,
       })
   )
   .use(chat)

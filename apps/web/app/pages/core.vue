@@ -23,6 +23,14 @@ const links = [[{
   label: 'Payments',
   icon: 'i-lucide-banknote',
   to: '/core/payments'
+}, {
+  label: 'Operations',
+  icon: 'i-lucide-clipboard-list',
+  to: '/core/operations'
+}, {
+  label: 'Moneyflow',
+  icon: 'i-lucide-wallet-cards',
+  to: '/core/moneyflow'
 }], [{
   label: 'Settings',
   type: 'label'

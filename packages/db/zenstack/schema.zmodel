@@ -98,6 +98,7 @@ model Organization {
     bookings          Booking[]
     invoices          Invoice[]
     auditEvents       AuditEvent[]
+    vehicles          Vehicle[]
 
     @@map('organization')
 }
@@ -121,6 +122,8 @@ model Trip {
     status         TripStatus   @default(DRAFT)
     holds          Hold[]
     bookings       Booking[]
+    vehicle        Vehicle?      @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+    vehicleId       String?
     createdAt      DateTime     @default(now())
     updatedAt      DateTime     @default(now()) @updatedAt
 
@@ -247,6 +250,28 @@ model AuditEvent {
 
     @@index([organizationId, entityType, entityId, createdAt])
     @@map('auditEvent')
+}
+
+enum VehicleStatus {
+    AVAILABLE
+    ASSIGNED
+    MAINTENANCE
+}
+
+model Vehicle {
+    id             String        @id @default(ulid())
+    organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+    organizationId String
+    name           String
+    plateNumber    String
+    status         VehicleStatus @default(AVAILABLE)
+    trips          Trip[]
+    createdAt      DateTime      @default(now())
+    updatedAt      DateTime      @default(now()) @updatedAt
+
+    @@unique([organizationId, plateNumber])
+    @@index([organizationId, status])
+    @@map('vehicle')
 }
 
 model OrganizationRole {

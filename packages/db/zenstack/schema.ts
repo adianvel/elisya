@@ -444,6 +444,12 @@ export class SchemaType implements SchemaDef {
                     type: "AuditEvent",
                     array: true,
                     relation: { opposite: "organization" }
+                },
+                vehicles: {
+                    name: "vehicles",
+                    type: "Vehicle",
+                    array: true,
+                    relation: { opposite: "organization" }
                 }
             },
             attributes: [
@@ -521,6 +527,21 @@ export class SchemaType implements SchemaDef {
                     type: "Booking",
                     array: true,
                     relation: { opposite: "trip" }
+                },
+                vehicle: {
+                    name: "vehicle",
+                    type: "Vehicle",
+                    optional: true,
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("vehicleId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("SetNull") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "trips", fields: ["vehicleId"], references: ["id"], onDelete: "SetNull" }
+                },
+                vehicleId: {
+                    name: "vehicleId",
+                    type: "String",
+                    optional: true,
+                    foreignKeyFor: [
+                        "vehicle"
+                    ] as readonly string[]
                 },
                 createdAt: {
                     name: "createdAt",
@@ -1006,6 +1027,74 @@ export class SchemaType implements SchemaDef {
                 id: { type: "String" }
             }
         },
+        Vehicle: {
+            name: "Vehicle",
+            fields: {
+                id: {
+                    name: "id",
+                    type: "String",
+                    id: true,
+                    attributes: [{ name: "@id" }, { name: "@default", args: [{ name: "value", value: ExpressionUtils.call("ulid") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("ulid") as FieldDefault
+                },
+                organization: {
+                    name: "organization",
+                    type: "Organization",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "vehicles", fields: ["organizationId"], references: ["id"], onDelete: "Cascade" }
+                },
+                organizationId: {
+                    name: "organizationId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "organization"
+                    ] as readonly string[]
+                },
+                name: {
+                    name: "name",
+                    type: "String"
+                },
+                plateNumber: {
+                    name: "plateNumber",
+                    type: "String"
+                },
+                status: {
+                    name: "status",
+                    type: "VehicleStatus",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.literal("AVAILABLE") }] }] as readonly AttributeApplication[],
+                    default: "AVAILABLE" as FieldDefault
+                },
+                trips: {
+                    name: "trips",
+                    type: "Trip",
+                    array: true,
+                    relation: { opposite: "vehicle" }
+                },
+                createdAt: {
+                    name: "createdAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                },
+                updatedAt: {
+                    name: "updatedAt",
+                    type: "DateTime",
+                    updatedAt: true,
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }, { name: "@updatedAt" }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                }
+            },
+            attributes: [
+                { name: "@@unique", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("plateNumber")]) }] },
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("status")]) }] },
+                { name: "@@map", args: [{ name: "name", value: ExpressionUtils.literal("vehicle") }] }
+            ] as readonly AttributeApplication[],
+            idFields: ["id"],
+            uniqueFields: {
+                id: { type: "String" },
+                organizationId_plateNumber: { organizationId: { type: "String" }, plateNumber: { type: "String" } }
+            }
+        },
         OrganizationRole: {
             name: "OrganizationRole",
             fields: {
@@ -1446,6 +1535,14 @@ export class SchemaType implements SchemaDef {
             name: "InvoiceStatus",
             values: {
                 ISSUED: "ISSUED"
+            }
+        },
+        VehicleStatus: {
+            name: "VehicleStatus",
+            values: {
+                AVAILABLE: "AVAILABLE",
+                ASSIGNED: "ASSIGNED",
+                MAINTENANCE: "MAINTENANCE"
             }
         },
         PostStatus: {
