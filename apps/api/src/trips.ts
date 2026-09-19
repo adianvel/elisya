@@ -50,7 +50,7 @@ const store: TripStore = {
   })),
   create: async (input) => zenstack.trip.create({ data: input }) as Promise<Trip>,
   update: async (organizationId, id, input) => zenstack.trip.update({
-    where: { id, organizationId },
+    where: { id },
     data: input,
   }) as Promise<Trip>,
   findMany: async (organizationId) => zenstack.trip.findMany({
