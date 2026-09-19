@@ -408,6 +408,12 @@ export class SchemaType implements SchemaDef {
                     type: "Post",
                     array: true,
                     relation: { opposite: "organization" }
+                },
+                trips: {
+                    name: "trips",
+                    type: "Trip",
+                    array: true,
+                    relation: { opposite: "organization" }
                 }
             },
             attributes: [
@@ -417,6 +423,84 @@ export class SchemaType implements SchemaDef {
             uniqueFields: {
                 id: { type: "String" },
                 slug: { type: "String" }
+            }
+        },
+        Trip: {
+            name: "Trip",
+            fields: {
+                id: {
+                    name: "id",
+                    type: "String",
+                    id: true,
+                    attributes: [{ name: "@id" }, { name: "@default", args: [{ name: "value", value: ExpressionUtils.call("ulid") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("ulid") as FieldDefault
+                },
+                organization: {
+                    name: "organization",
+                    type: "Organization",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "trips", fields: ["organizationId"], references: ["id"], onDelete: "Cascade" }
+                },
+                organizationId: {
+                    name: "organizationId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "organization"
+                    ] as readonly string[]
+                },
+                origin: {
+                    name: "origin",
+                    type: "String"
+                },
+                destination: {
+                    name: "destination",
+                    type: "String"
+                },
+                departureAt: {
+                    name: "departureAt",
+                    type: "DateTime"
+                },
+                price: {
+                    name: "price",
+                    type: "Int"
+                },
+                currency: {
+                    name: "currency",
+                    type: "String",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.literal("IDR") }] }] as readonly AttributeApplication[],
+                    default: "IDR" as FieldDefault
+                },
+                seatQuota: {
+                    name: "seatQuota",
+                    type: "Int"
+                },
+                status: {
+                    name: "status",
+                    type: "TripStatus",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.literal("DRAFT") }] }] as readonly AttributeApplication[],
+                    default: "DRAFT" as FieldDefault
+                },
+                createdAt: {
+                    name: "createdAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                },
+                updatedAt: {
+                    name: "updatedAt",
+                    type: "DateTime",
+                    updatedAt: true,
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }, { name: "@updatedAt" }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                }
+            },
+            attributes: [
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("status"), ExpressionUtils.field("departureAt")]) }] },
+                { name: "@@map", args: [{ name: "name", value: ExpressionUtils.literal("trip") }] }
+            ] as readonly AttributeApplication[],
+            idFields: ["id"],
+            uniqueFields: {
+                id: { type: "String" }
             }
         },
         OrganizationRole: {
@@ -825,6 +909,14 @@ export class SchemaType implements SchemaDef {
         }
     } as const;
     enums = {
+        TripStatus: {
+            name: "TripStatus",
+            values: {
+                DRAFT: "DRAFT",
+                PUBLISHED: "PUBLISHED",
+                ARCHIVED: "ARCHIVED"
+            }
+        },
         PostStatus: {
             name: "PostStatus",
             values: {

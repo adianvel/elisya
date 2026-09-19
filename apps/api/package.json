@@ -3,7 +3,7 @@
   "version": "1.0.50",
   "module": "src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "bun test",
     "dev": "bun run --env-file ../../.env --watch src/index.ts"
   },
   "dependencies": {

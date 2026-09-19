@@ -8,6 +8,7 @@ import { LogModule } from '@repo/db/enums';
 import { logger, readLogs } from '@repo/logger';
 import * as storage from '@repo/storage';
 import { chat } from './chat';
+import { configuredOrganizationId, trips } from './trips';
 import { enqueueTask, stopTasks } from "./lib/tasks";
 
 const AuthService = new Elysia({ name: "better-auth" })
@@ -60,6 +61,12 @@ const AccessLog = new Elysia({ name: "access-log" })
       err: error,
     }, 'request failed')
   })
+
+function ownerActor(user: { id: string }, organizationId: string, members: Array<{ organizationId: string; role: string }>) {
+  const member = members.find((item) => item.organizationId === organizationId)
+  if (!member || member.role !== 'owner') return null
+  return { userId: user.id, organizationId }
+}
 
 const app = new Elysia()
   .use(
@@ -164,6 +171,70 @@ const app = new Elysia()
       }), {
         body: t.Object({
           organizationId: t.Optional(t.String()),
+        }),
+        auth: true,
+      })
+  )
+  .group('/trips', (app) =>
+    app
+      .get('/', () => trips.listAvailable({ organizationId: configuredOrganizationId() }))
+      .get('/manage', async ({ query, user, members, status }) => {
+        const actor = ownerActor(user, query.organizationId, members)
+        if (!actor) return status(403)
+        return trips.listOwner(actor)
+      }, {
+        query: t.Object({
+          organizationId: t.String({ minLength: 1 }),
+        }),
+        auth: true,
+      })
+      .post('/', async ({ body, user, members, status }) => {
+        const actor = ownerActor(user, body.organizationId, members)
+        if (!actor) return status(403)
+        return trips.create(actor, {
+          origin: body.origin,
+          destination: body.destination,
+          departureAt: new Date(body.departureAt),
+          price: body.price,
+          currency: body.currency,
+          seatQuota: body.seatQuota,
+        })
+      }, {
+        body: t.Object({
+          organizationId: t.String({ minLength: 1 }),
+          origin: t.String({ minLength: 1, maxLength: 100 }),
+          destination: t.String({ minLength: 1, maxLength: 100 }),
+          departureAt: t.String({ format: 'date-time' }),
+          price: t.Integer({ minimum: 0 }),
+          currency: t.Optional(t.String({ minLength: 3, maxLength: 3 })),
+          seatQuota: t.Integer({ minimum: 1 }),
+        }),
+        auth: true,
+      })
+      .patch('/:id', async ({ params, body, user, members, status }) => {
+        const actor = ownerActor(user, body.organizationId, members)
+        if (!actor) return status(403)
+        const changes = {
+          ...(body.origin === undefined ? {} : { origin: body.origin }),
+          ...(body.destination === undefined ? {} : { destination: body.destination }),
+          ...(body.departureAt === undefined ? {} : { departureAt: new Date(body.departureAt) }),
+          ...(body.price === undefined ? {} : { price: body.price }),
+          ...(body.currency === undefined ? {} : { currency: body.currency }),
+          ...(body.seatQuota === undefined ? {} : { seatQuota: body.seatQuota }),
+          ...(body.status === undefined ? {} : { status: body.status }),
+        }
+        return trips.update(actor, params.id, changes)
+      }, {
+        params: t.Object({ id: t.String({ minLength: 1 }) }),
+        body: t.Object({
+          organizationId: t.String({ minLength: 1 }),
+          origin: t.Optional(t.String({ minLength: 1, maxLength: 100 })),
+          destination: t.Optional(t.String({ minLength: 1, maxLength: 100 })),
+          departureAt: t.Optional(t.String({ format: 'date-time' })),
+          price: t.Optional(t.Integer({ minimum: 0 })),
+          currency: t.Optional(t.String({ minLength: 3, maxLength: 3 })),
+          seatQuota: t.Optional(t.Integer({ minimum: 1 })),
+          status: t.Optional(t.Union([t.Literal('DRAFT'), t.Literal('PUBLISHED'), t.Literal('ARCHIVED')])),
         }),
         auth: true,
       })
