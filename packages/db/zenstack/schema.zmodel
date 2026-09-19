@@ -95,6 +95,9 @@ model Organization {
     trips             Trip[]
     holds             Hold[]
     payments          Payment[]
+    bookings          Booking[]
+    invoices          Invoice[]
+    auditEvents       AuditEvent[]
 
     @@map('organization')
 }
@@ -117,6 +120,7 @@ model Trip {
     seatQuota      Int
     status         TripStatus   @default(DRAFT)
     holds          Hold[]
+    bookings       Booking[]
     createdAt      DateTime     @default(now())
     updatedAt      DateTime     @default(now()) @updatedAt
 
@@ -143,6 +147,7 @@ model Hold {
     createdAt      DateTime     @default(now())
     updatedAt      DateTime     @default(now()) @updatedAt
     payments       Payment[]
+    booking        Booking?
 
     @@unique([organizationId, customerRef, idempotencyKey])
     @@index([tripId, status, expiresAt])
@@ -172,11 +177,76 @@ model Payment {
     reviewedAt     DateTime?
     createdAt      DateTime      @default(now())
     updatedAt      DateTime      @default(now()) @updatedAt
+    booking        Booking?
 
     @@unique([organizationId, customerRef, idempotencyKey])
     @@index([organizationId, status, submittedAt])
     @@index([holdId, status])
     @@map('payment')
+}
+
+enum BookingStatus {
+    CONFIRMED
+    PAYMENT_REJECTED
+}
+
+model Booking {
+    id             String        @id @default(ulid())
+    organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+    organizationId String
+    hold           Hold          @relation(fields: [holdId], references: [id], onDelete: Cascade)
+    holdId         String        @unique
+    trip           Trip          @relation(fields: [tripId], references: [id], onDelete: Cascade)
+    tripId         String
+    payment        Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+    paymentId      String        @unique
+    customerRef    String
+    seatCount      Int
+    status         BookingStatus
+    confirmedAt    DateTime?
+    createdAt      DateTime      @default(now())
+    updatedAt      DateTime      @default(now()) @updatedAt
+    invoice        Invoice?
+
+    @@index([organizationId, status, createdAt])
+    @@index([organizationId, customerRef, createdAt])
+    @@map('booking')
+}
+
+enum InvoiceStatus {
+    ISSUED
+}
+
+model Invoice {
+    id             String        @id @default(ulid())
+    organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+    organizationId String
+    booking        Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+    bookingId      String        @unique
+    amount         Int
+    currency       String
+    status         InvoiceStatus @default(ISSUED)
+    issuedAt       DateTime      @default(now())
+    createdAt      DateTime      @default(now())
+    updatedAt      DateTime      @default(now()) @updatedAt
+
+    @@index([organizationId, issuedAt])
+    @@map('invoice')
+}
+
+model AuditEvent {
+    id             String       @id @default(ulid())
+    organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+    organizationId String
+    actorId        String?
+    action         String
+    entityType     String
+    entityId       String
+    metadata       String?
+    createdAt      DateTime     @default(now())
+
+    @@index([organizationId, entityType, entityId, createdAt])
+    @@map('auditEvent')
 }
 
 model OrganizationRole {

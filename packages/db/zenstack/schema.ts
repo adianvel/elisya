@@ -426,6 +426,24 @@ export class SchemaType implements SchemaDef {
                     type: "Payment",
                     array: true,
                     relation: { opposite: "organization" }
+                },
+                bookings: {
+                    name: "bookings",
+                    type: "Booking",
+                    array: true,
+                    relation: { opposite: "organization" }
+                },
+                invoices: {
+                    name: "invoices",
+                    type: "Invoice",
+                    array: true,
+                    relation: { opposite: "organization" }
+                },
+                auditEvents: {
+                    name: "auditEvents",
+                    type: "AuditEvent",
+                    array: true,
+                    relation: { opposite: "organization" }
                 }
             },
             attributes: [
@@ -495,6 +513,12 @@ export class SchemaType implements SchemaDef {
                 holds: {
                     name: "holds",
                     type: "Hold",
+                    array: true,
+                    relation: { opposite: "trip" }
+                },
+                bookings: {
+                    name: "bookings",
+                    type: "Booking",
                     array: true,
                     relation: { opposite: "trip" }
                 },
@@ -597,6 +621,12 @@ export class SchemaType implements SchemaDef {
                     type: "Payment",
                     array: true,
                     relation: { opposite: "hold" }
+                },
+                booking: {
+                    name: "booking",
+                    type: "Booking",
+                    optional: true,
+                    relation: { opposite: "hold" }
                 }
             },
             attributes: [
@@ -698,6 +728,12 @@ export class SchemaType implements SchemaDef {
                     updatedAt: true,
                     attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }, { name: "@updatedAt" }] as readonly AttributeApplication[],
                     default: ExpressionUtils.call("now") as FieldDefault
+                },
+                booking: {
+                    name: "booking",
+                    type: "Booking",
+                    optional: true,
+                    relation: { opposite: "payment" }
                 }
             },
             attributes: [
@@ -710,6 +746,264 @@ export class SchemaType implements SchemaDef {
             uniqueFields: {
                 id: { type: "String" },
                 organizationId_customerRef_idempotencyKey: { organizationId: { type: "String" }, customerRef: { type: "String" }, idempotencyKey: { type: "String" } }
+            }
+        },
+        Booking: {
+            name: "Booking",
+            fields: {
+                id: {
+                    name: "id",
+                    type: "String",
+                    id: true,
+                    attributes: [{ name: "@id" }, { name: "@default", args: [{ name: "value", value: ExpressionUtils.call("ulid") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("ulid") as FieldDefault
+                },
+                organization: {
+                    name: "organization",
+                    type: "Organization",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "bookings", fields: ["organizationId"], references: ["id"], onDelete: "Cascade" }
+                },
+                organizationId: {
+                    name: "organizationId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "organization"
+                    ] as readonly string[]
+                },
+                hold: {
+                    name: "hold",
+                    type: "Hold",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("holdId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "booking", fields: ["holdId"], references: ["id"], onDelete: "Cascade" }
+                },
+                holdId: {
+                    name: "holdId",
+                    type: "String",
+                    unique: true,
+                    attributes: [{ name: "@unique" }] as readonly AttributeApplication[],
+                    foreignKeyFor: [
+                        "hold"
+                    ] as readonly string[]
+                },
+                trip: {
+                    name: "trip",
+                    type: "Trip",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("tripId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "bookings", fields: ["tripId"], references: ["id"], onDelete: "Cascade" }
+                },
+                tripId: {
+                    name: "tripId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "trip"
+                    ] as readonly string[]
+                },
+                payment: {
+                    name: "payment",
+                    type: "Payment",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("paymentId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "booking", fields: ["paymentId"], references: ["id"], onDelete: "Cascade" }
+                },
+                paymentId: {
+                    name: "paymentId",
+                    type: "String",
+                    unique: true,
+                    attributes: [{ name: "@unique" }] as readonly AttributeApplication[],
+                    foreignKeyFor: [
+                        "payment"
+                    ] as readonly string[]
+                },
+                customerRef: {
+                    name: "customerRef",
+                    type: "String"
+                },
+                seatCount: {
+                    name: "seatCount",
+                    type: "Int"
+                },
+                status: {
+                    name: "status",
+                    type: "BookingStatus"
+                },
+                confirmedAt: {
+                    name: "confirmedAt",
+                    type: "DateTime",
+                    optional: true
+                },
+                createdAt: {
+                    name: "createdAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                },
+                updatedAt: {
+                    name: "updatedAt",
+                    type: "DateTime",
+                    updatedAt: true,
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }, { name: "@updatedAt" }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                },
+                invoice: {
+                    name: "invoice",
+                    type: "Invoice",
+                    optional: true,
+                    relation: { opposite: "booking" }
+                }
+            },
+            attributes: [
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("status"), ExpressionUtils.field("createdAt")]) }] },
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("customerRef"), ExpressionUtils.field("createdAt")]) }] },
+                { name: "@@map", args: [{ name: "name", value: ExpressionUtils.literal("booking") }] }
+            ] as readonly AttributeApplication[],
+            idFields: ["id"],
+            uniqueFields: {
+                id: { type: "String" },
+                holdId: { type: "String" },
+                paymentId: { type: "String" }
+            }
+        },
+        Invoice: {
+            name: "Invoice",
+            fields: {
+                id: {
+                    name: "id",
+                    type: "String",
+                    id: true,
+                    attributes: [{ name: "@id" }, { name: "@default", args: [{ name: "value", value: ExpressionUtils.call("ulid") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("ulid") as FieldDefault
+                },
+                organization: {
+                    name: "organization",
+                    type: "Organization",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "invoices", fields: ["organizationId"], references: ["id"], onDelete: "Cascade" }
+                },
+                organizationId: {
+                    name: "organizationId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "organization"
+                    ] as readonly string[]
+                },
+                booking: {
+                    name: "booking",
+                    type: "Booking",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("bookingId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "invoice", fields: ["bookingId"], references: ["id"], onDelete: "Cascade" }
+                },
+                bookingId: {
+                    name: "bookingId",
+                    type: "String",
+                    unique: true,
+                    attributes: [{ name: "@unique" }] as readonly AttributeApplication[],
+                    foreignKeyFor: [
+                        "booking"
+                    ] as readonly string[]
+                },
+                amount: {
+                    name: "amount",
+                    type: "Int"
+                },
+                currency: {
+                    name: "currency",
+                    type: "String"
+                },
+                status: {
+                    name: "status",
+                    type: "InvoiceStatus",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.literal("ISSUED") }] }] as readonly AttributeApplication[],
+                    default: "ISSUED" as FieldDefault
+                },
+                issuedAt: {
+                    name: "issuedAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                },
+                createdAt: {
+                    name: "createdAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                },
+                updatedAt: {
+                    name: "updatedAt",
+                    type: "DateTime",
+                    updatedAt: true,
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }, { name: "@updatedAt" }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                }
+            },
+            attributes: [
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("issuedAt")]) }] },
+                { name: "@@map", args: [{ name: "name", value: ExpressionUtils.literal("invoice") }] }
+            ] as readonly AttributeApplication[],
+            idFields: ["id"],
+            uniqueFields: {
+                id: { type: "String" },
+                bookingId: { type: "String" }
+            }
+        },
+        AuditEvent: {
+            name: "AuditEvent",
+            fields: {
+                id: {
+                    name: "id",
+                    type: "String",
+                    id: true,
+                    attributes: [{ name: "@id" }, { name: "@default", args: [{ name: "value", value: ExpressionUtils.call("ulid") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("ulid") as FieldDefault
+                },
+                organization: {
+                    name: "organization",
+                    type: "Organization",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "auditEvents", fields: ["organizationId"], references: ["id"], onDelete: "Cascade" }
+                },
+                organizationId: {
+                    name: "organizationId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "organization"
+                    ] as readonly string[]
+                },
+                actorId: {
+                    name: "actorId",
+                    type: "String",
+                    optional: true
+                },
+                action: {
+                    name: "action",
+                    type: "String"
+                },
+                entityType: {
+                    name: "entityType",
+                    type: "String"
+                },
+                entityId: {
+                    name: "entityId",
+                    type: "String"
+                },
+                metadata: {
+                    name: "metadata",
+                    type: "String",
+                    optional: true
+                },
+                createdAt: {
+                    name: "createdAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                }
+            },
+            attributes: [
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("entityType"), ExpressionUtils.field("entityId"), ExpressionUtils.field("createdAt")]) }] },
+                { name: "@@map", args: [{ name: "name", value: ExpressionUtils.literal("auditEvent") }] }
+            ] as readonly AttributeApplication[],
+            idFields: ["id"],
+            uniqueFields: {
+                id: { type: "String" }
             }
         },
         OrganizationRole: {
@@ -1139,6 +1433,19 @@ export class SchemaType implements SchemaDef {
                 PENDING: "PENDING",
                 APPROVED: "APPROVED",
                 REJECTED: "REJECTED"
+            }
+        },
+        BookingStatus: {
+            name: "BookingStatus",
+            values: {
+                CONFIRMED: "CONFIRMED",
+                PAYMENT_REJECTED: "PAYMENT_REJECTED"
+            }
+        },
+        InvoiceStatus: {
+            name: "InvoiceStatus",
+            values: {
+                ISSUED: "ISSUED"
             }
         },
         PostStatus: {

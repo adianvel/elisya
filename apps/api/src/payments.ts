@@ -1,5 +1,6 @@
 import { pool, zenstack } from '@repo/db'
 import { ulid } from 'ulid'
+import { materializeBooking } from './bookings'
 
 export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
 
@@ -107,15 +108,45 @@ const store: PaymentStore = {
   },
 
   async review(actor, id, review, now) {
-    const result = await pool.query<PaymentRecord>(
-      `UPDATE "payment"
-       SET status = $3, "rejectionReason" = $4, "reviewedBy" = $5, "reviewedAt" = $6, "updatedAt" = $6
-       WHERE id = $1 AND "organizationId" = $2 AND status = 'PENDING'
-       RETURNING id, "organizationId", "holdId", "customerRef", "proofKey", status, "rejectionReason", "submittedAt", "reviewedAt"`,
-      [id, actor.organizationId, review.status, review.status === 'REJECTED' ? review.reason : null, actor.userId, now],
-    )
-    if (!result.rows[0]) throw new Error('Pending Payment not found')
-    return result.rows[0]
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const current = await client.query<PaymentRecord>(
+        `SELECT id, "organizationId", "holdId", "customerRef", "proofKey", status, "rejectionReason", "submittedAt", "reviewedAt"
+         FROM "payment" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
+        [id, actor.organizationId],
+      )
+      if (!current.rows[0]) throw new Error('Payment not found')
+      if (current.rows[0].status !== 'PENDING') {
+        await client.query('COMMIT')
+        return current.rows[0]
+      }
+      await client.query(
+        `UPDATE "payment"
+         SET status = $3, "rejectionReason" = $4, "reviewedBy" = $5, "reviewedAt" = $6, "updatedAt" = $6
+         WHERE id = $1 AND "organizationId" = $2`,
+        [id, actor.organizationId, review.status, review.status === 'REJECTED' ? review.reason : null, actor.userId, now],
+      )
+      await materializeBooking(client, {
+        paymentId: id,
+        organizationId: actor.organizationId,
+        status: review.status === 'APPROVED' ? 'CONFIRMED' : 'PAYMENT_REJECTED',
+        actorId: actor.userId,
+        now,
+      })
+      const updated = await client.query<PaymentRecord>(
+        `SELECT id, "organizationId", "holdId", "customerRef", "proofKey", status, "rejectionReason", "submittedAt", "reviewedAt"
+         FROM "payment" WHERE id = $1`,
+        [id],
+      )
+      await client.query('COMMIT')
+      return updated.rows[0]
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
   },
 
   async proofKey(organizationId, id) {

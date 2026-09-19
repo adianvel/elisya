@@ -24,8 +24,9 @@ function fakeStore(): PaymentStore {
     },
     listPending: async (organizationId) => rows.filter((row) => row.organizationId === organizationId && row.status === 'PENDING'),
     review: async (actor, id, review, now) => {
-      const row = rows.find((item) => item.organizationId === actor.organizationId && item.id === id && item.status === 'PENDING')
+      const row = rows.find((item) => item.organizationId === actor.organizationId && item.id === id)
       if (!row) throw new Error('Pending Payment not found')
+      if (row.status !== 'PENDING') return row
       row.status = review.status
       row.rejectionReason = review.status === 'REJECTED' ? review.reason ?? null : null
       row.reviewedAt = now
@@ -59,6 +60,8 @@ describe('Payment service', () => {
     await expect(service.listPending({ userId: 'owner-1', organizationId: 'org-2' })).rejects.toThrow('Owner access required')
     const approved = await service.review({ userId: 'owner-1', organizationId: 'org-1' }, payment.id, { status: 'APPROVED' })
     expect(approved.status).toBe('APPROVED')
+    const repeated = await service.review({ userId: 'owner-1', organizationId: 'org-1' }, payment.id, { status: 'APPROVED' })
+    expect(repeated.status).toBe('APPROVED')
   })
 
   it('requires a rejection reason and records it', async () => {

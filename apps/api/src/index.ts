@@ -11,6 +11,7 @@ import { chat } from './chat';
 import { configuredOrganizationId, trips } from './trips';
 import { holds } from './holds';
 import { payments } from './payments';
+import { bookings } from './bookings';
 import { enqueueTask, stopTasks } from "./lib/tasks";
 
 const AuthService = new Elysia({ name: "better-auth" })
@@ -311,6 +312,24 @@ const app = new Elysia()
         params: t.Object({ id: t.String({ minLength: 1 }) }),
         query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
         auth: true,
+      })
+  )
+  .group('/bookings', (app) =>
+    app
+      .get('/manage', async ({ query, user, members, status }) => {
+        const actor = ownerActor(user, query.organizationId, members)
+        if (!actor) return status(403)
+        return bookings.listOwner(actor)
+      }, {
+        query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+        auth: true,
+      })
+      .get('/:id', async ({ params, query }) => {
+        const booking = await bookings.getForCustomer(configuredOrganizationId(), query.customerRef, params.id)
+        return booking ?? { error: 'Booking not found' }
+      }, {
+        params: t.Object({ id: t.String({ minLength: 1 }) }),
+        query: t.Object({ customerRef: t.String({ minLength: 1, maxLength: 255 }) }),
       })
   )
   .use(chat)
