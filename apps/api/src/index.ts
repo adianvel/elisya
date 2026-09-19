@@ -10,6 +10,7 @@ import * as storage from '@repo/storage';
 import { chat } from './chat';
 import { configuredOrganizationId, trips } from './trips';
 import { holds } from './holds';
+import { payments } from './payments';
 import { enqueueTask, stopTasks } from "./lib/tasks";
 
 const AuthService = new Elysia({ name: "better-auth" })
@@ -261,6 +262,55 @@ const app = new Elysia()
         return hold ?? { error: 'Hold not found' }
       }, {
         params: t.Object({ id: t.String({ minLength: 1 }) }),
+      })
+  )
+  .group('/payments', (app) =>
+    app
+      .post('/', ({ body }) => payments.submit({
+        organizationId: configuredOrganizationId(),
+        holdId: body.holdId,
+        customerRef: body.customerRef,
+        proofKey: body.proofKey,
+        idempotencyKey: body.idempotencyKey,
+      }), {
+        body: t.Object({
+          holdId: t.String({ minLength: 1 }),
+          customerRef: t.String({ minLength: 1, maxLength: 255 }),
+          proofKey: t.String({ minLength: 1, maxLength: 1024 }),
+          idempotencyKey: t.String({ minLength: 1, maxLength: 255 }),
+        }),
+      })
+      .get('/manage', async ({ query, user, members, status }) => {
+        const actor = ownerActor(user, query.organizationId, members)
+        if (!actor) return status(403)
+        return payments.listPending(actor)
+      }, {
+        query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+        auth: true,
+      })
+      .patch('/:id/review', async ({ params, body, query, user, members, status }) => {
+        const actor = ownerActor(user, query.organizationId, members)
+        if (!actor) return status(403)
+        return payments.review(actor, params.id, body)
+      }, {
+        params: t.Object({ id: t.String({ minLength: 1 }) }),
+        query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+        body: t.Object({
+          status: t.Union([t.Literal('APPROVED'), t.Literal('REJECTED')]),
+          reason: t.Optional(t.String({ maxLength: 1000 })),
+        }),
+        auth: true,
+      })
+      .get('/:id/proof', async ({ params, query, user, members, status }) => {
+        const actor = ownerActor(user, query.organizationId, members)
+        if (!actor) return status(403)
+        const key = await payments.getProof(actor, params.id)
+        const file = await storage.download(key)
+        return file ? new Response(file) : status(404)
+      }, {
+        params: t.Object({ id: t.String({ minLength: 1 }) }),
+        query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+        auth: true,
       })
   )
   .use(chat)

@@ -94,6 +94,7 @@ model Organization {
     posts             Post[]
     trips             Trip[]
     holds             Hold[]
+    payments          Payment[]
 
     @@map('organization')
 }
@@ -141,11 +142,41 @@ model Hold {
     idempotencyKey String
     createdAt      DateTime     @default(now())
     updatedAt      DateTime     @default(now()) @updatedAt
+    payments       Payment[]
 
     @@unique([organizationId, customerRef, idempotencyKey])
     @@index([tripId, status, expiresAt])
     @@index([organizationId, customerRef, status])
     @@map('hold')
+}
+
+enum PaymentStatus {
+    PENDING
+    APPROVED
+    REJECTED
+}
+
+model Payment {
+    id             String        @id @default(ulid())
+    organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+    organizationId String
+    hold           Hold          @relation(fields: [holdId], references: [id], onDelete: Cascade)
+    holdId         String
+    customerRef    String
+    proofKey       String
+    status         PaymentStatus @default(PENDING)
+    rejectionReason String?
+    idempotencyKey String
+    reviewedBy     String?
+    submittedAt    DateTime      @default(now())
+    reviewedAt     DateTime?
+    createdAt      DateTime      @default(now())
+    updatedAt      DateTime      @default(now()) @updatedAt
+
+    @@unique([organizationId, customerRef, idempotencyKey])
+    @@index([organizationId, status, submittedAt])
+    @@index([holdId, status])
+    @@map('payment')
 }
 
 model OrganizationRole {

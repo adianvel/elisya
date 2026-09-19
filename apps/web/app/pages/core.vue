@@ -19,6 +19,10 @@ const links = [[{
   label: 'Trips',
   icon: 'i-lucide-bus',
   to: '/core/trips'
+}, {
+  label: 'Payments',
+  icon: 'i-lucide-banknote',
+  to: '/core/payments'
 }], [{
   label: 'Settings',
   type: 'label'

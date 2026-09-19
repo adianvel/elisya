@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { logger } from '@repo/logger'
 import { configuredOrganizationId, trips } from './trips'
 import { holds } from './holds'
+import { payments } from './payments'
 
 function userQuestion(messages: any[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -19,7 +20,7 @@ function userQuestion(messages: any[]): string | undefined {
 
 const SYSTEM_PROMPT = [
   'You are a booking assistant for Palawa.',
-  'Use only the available domain tools to help Customers discover Trips.',
+  'Use only the available domain tools to help Customers discover Trips, create Holds, and submit Payment proof.',
   'Never invent Trip availability, prices, or seat quotas.',
   'Answer in the same language as the user, in plain, non-technical language for business users.',
   'If no Trips are available, say so simply.',
@@ -53,6 +54,19 @@ export const chat = new Elysia({ prefix: '/chat' }).post(
             idempotencyKey: z.string().min(1),
           })),
           execute: (input) => holds.create({
+            organizationId: configuredOrganizationId(),
+            ...input,
+          }),
+        }),
+        submit_payment_proof: tool<{ holdId: string; customerRef: string; proofKey: string; idempotencyKey: string }, any, any>({
+          description: 'Submit a Customer payment proof for an active Hold.',
+          inputSchema: zodSchema(z.object({
+            holdId: z.string().min(1),
+            customerRef: z.string().min(1),
+            proofKey: z.string().min(1),
+            idempotencyKey: z.string().min(1),
+          })),
+          execute: (input) => payments.submit({
             organizationId: configuredOrganizationId(),
             ...input,
           }),

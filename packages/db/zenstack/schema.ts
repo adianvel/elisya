@@ -420,6 +420,12 @@ export class SchemaType implements SchemaDef {
                     type: "Hold",
                     array: true,
                     relation: { opposite: "organization" }
+                },
+                payments: {
+                    name: "payments",
+                    type: "Payment",
+                    array: true,
+                    relation: { opposite: "organization" }
                 }
             },
             attributes: [
@@ -585,6 +591,12 @@ export class SchemaType implements SchemaDef {
                     updatedAt: true,
                     attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }, { name: "@updatedAt" }] as readonly AttributeApplication[],
                     default: ExpressionUtils.call("now") as FieldDefault
+                },
+                payments: {
+                    name: "payments",
+                    type: "Payment",
+                    array: true,
+                    relation: { opposite: "hold" }
                 }
             },
             attributes: [
@@ -592,6 +604,107 @@ export class SchemaType implements SchemaDef {
                 { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("tripId"), ExpressionUtils.field("status"), ExpressionUtils.field("expiresAt")]) }] },
                 { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("customerRef"), ExpressionUtils.field("status")]) }] },
                 { name: "@@map", args: [{ name: "name", value: ExpressionUtils.literal("hold") }] }
+            ] as readonly AttributeApplication[],
+            idFields: ["id"],
+            uniqueFields: {
+                id: { type: "String" },
+                organizationId_customerRef_idempotencyKey: { organizationId: { type: "String" }, customerRef: { type: "String" }, idempotencyKey: { type: "String" } }
+            }
+        },
+        Payment: {
+            name: "Payment",
+            fields: {
+                id: {
+                    name: "id",
+                    type: "String",
+                    id: true,
+                    attributes: [{ name: "@id" }, { name: "@default", args: [{ name: "value", value: ExpressionUtils.call("ulid") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("ulid") as FieldDefault
+                },
+                organization: {
+                    name: "organization",
+                    type: "Organization",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "payments", fields: ["organizationId"], references: ["id"], onDelete: "Cascade" }
+                },
+                organizationId: {
+                    name: "organizationId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "organization"
+                    ] as readonly string[]
+                },
+                hold: {
+                    name: "hold",
+                    type: "Hold",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("holdId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "payments", fields: ["holdId"], references: ["id"], onDelete: "Cascade" }
+                },
+                holdId: {
+                    name: "holdId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "hold"
+                    ] as readonly string[]
+                },
+                customerRef: {
+                    name: "customerRef",
+                    type: "String"
+                },
+                proofKey: {
+                    name: "proofKey",
+                    type: "String"
+                },
+                status: {
+                    name: "status",
+                    type: "PaymentStatus",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.literal("PENDING") }] }] as readonly AttributeApplication[],
+                    default: "PENDING" as FieldDefault
+                },
+                rejectionReason: {
+                    name: "rejectionReason",
+                    type: "String",
+                    optional: true
+                },
+                idempotencyKey: {
+                    name: "idempotencyKey",
+                    type: "String"
+                },
+                reviewedBy: {
+                    name: "reviewedBy",
+                    type: "String",
+                    optional: true
+                },
+                submittedAt: {
+                    name: "submittedAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                },
+                reviewedAt: {
+                    name: "reviewedAt",
+                    type: "DateTime",
+                    optional: true
+                },
+                createdAt: {
+                    name: "createdAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                },
+                updatedAt: {
+                    name: "updatedAt",
+                    type: "DateTime",
+                    updatedAt: true,
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }, { name: "@updatedAt" }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                }
+            },
+            attributes: [
+                { name: "@@unique", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("customerRef"), ExpressionUtils.field("idempotencyKey")]) }] },
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("status"), ExpressionUtils.field("submittedAt")]) }] },
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("holdId"), ExpressionUtils.field("status")]) }] },
+                { name: "@@map", args: [{ name: "name", value: ExpressionUtils.literal("payment") }] }
             ] as readonly AttributeApplication[],
             idFields: ["id"],
             uniqueFields: {
@@ -1018,6 +1131,14 @@ export class SchemaType implements SchemaDef {
             values: {
                 ACTIVE: "ACTIVE",
                 EXPIRED: "EXPIRED"
+            }
+        },
+        PaymentStatus: {
+            name: "PaymentStatus",
+            values: {
+                PENDING: "PENDING",
+                APPROVED: "APPROVED",
+                REJECTED: "REJECTED"
             }
         },
         PostStatus: {
