@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { TripStatus } from '@repo/db'
+type TripStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
 
 type Trip = {
   id: string

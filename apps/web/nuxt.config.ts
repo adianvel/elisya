@@ -31,7 +31,7 @@ export default defineNuxtConfig({
   },
 
   routeRules: {
-    '/': { redirect: '/core' },
+    '/book': { redirect: '/' },
     '/logs': { redirect: '/logs/access' },
     '/auth': { redirect: '/auth/signin' },
     '/core/**': { auth: { only: 'user', redirectTo: '/auth/signin' } },
