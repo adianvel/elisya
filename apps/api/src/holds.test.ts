@@ -24,7 +24,7 @@ function fakeStore(quota = 3): HoldStore {
       for (const row of rows) if (row.status === 'ACTIVE' && row.expiresAt <= now) row.status = 'EXPIRED'
       const reserved = rows.filter((row) => row.tripId === input.tripId && row.status === 'ACTIVE' && row.expiresAt > now).reduce((sum, row) => sum + row.seatCount, 0)
       if (reserved + input.seatCount > quota) throw new Error('Not enough seats available')
-      const row: Hold = { id: `hold-${rows.length + 1}`, organizationId: input.organizationId, tripId: input.tripId, customerRef: input.customerRef, seatCount: input.seatCount, status: 'ACTIVE', expiresAt: new Date(now.getTime() + 900_000) }
+      const row: Hold = { id: `hold-${rows.length + 1}`, organizationId: input.organizationId, tripId: input.tripId, customerRef: input.customerRef, seatCount: input.seatCount, priceAtHold: 100, currencyAtHold: 'IDR', status: 'ACTIVE', expiresAt: new Date(now.getTime() + 900_000) }
       rows.push(row)
       keys.add(key)
       return row
@@ -35,6 +35,14 @@ function fakeStore(quota = 3): HoldStore {
       return count
     }),
     find: async (organizationId, id) => rows.find((row) => row.organizationId === organizationId && row.id === id) ?? null,
+    cancel: async (organizationId, id, customerRef, now) => {
+      const row = rows.find((item) => item.organizationId === organizationId && item.id === id && item.customerRef === customerRef)
+      if (!row) return null
+      if (row.status === 'CANCELLED') return row
+      if (row.status !== 'ACTIVE' || row.expiresAt <= now) throw new Error('Hold is no longer cancellable')
+      row.status = 'CANCELLED'
+      return row
+    },
   }
 }
 
@@ -66,5 +74,16 @@ describe('Hold service', () => {
     expect(expired?.status).toBe('EXPIRED')
     const replacement = await service.create({ organizationId: 'org-1', tripId, customerRef: 'b', seatCount: 1, idempotencyKey: 'b', now: new Date(now.getTime() + 901_000) })
     expect(replacement.status).toBe('ACTIVE')
+  })
+
+  it('cancels an unpaid Hold idempotently', async () => {
+    const service = createHoldService(fakeStore(1), silentNotify)
+    const hold = await service.create({ organizationId: 'org-1', tripId, customerRef: 'a', seatCount: 1, idempotencyKey: 'a' })
+
+    const cancelled = await service.cancel('org-1', hold.id, 'a')
+    expect(cancelled?.status).toBe('CANCELLED')
+    await expect(service.cancel('org-1', hold.id, 'a')).resolves.toMatchObject({ status: 'CANCELLED' })
+    await expect(service.create({ organizationId: 'org-1', tripId, customerRef: 'b', seatCount: 1, idempotencyKey: 'b' }))
+      .resolves.toMatchObject({ status: 'ACTIVE' })
   })
 })

@@ -135,6 +135,7 @@ model Trip {
 enum HoldStatus {
     ACTIVE
     EXPIRED
+    CANCELLED
 }
 
 model Hold {
@@ -145,6 +146,8 @@ model Hold {
     tripId         String
     customerRef    String
     seatCount      Int
+    priceAtHold    Int?
+    currencyAtHold String?
     status         HoldStatus   @default(ACTIVE)
     expiresAt      DateTime
     idempotencyKey String

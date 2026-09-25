@@ -37,7 +37,6 @@ export function invoiceAmount(price: number, seatCount: number): number {
 type MaterializeInput = {
   paymentId: string
   organizationId: string
-  status: 'CONFIRMED' | 'PAYMENT_REJECTED'
   actorId: string
   now: Date
 }
@@ -52,12 +51,17 @@ export async function materializeBooking(client: DbClient, input: MaterializeInp
     tripId: string
     customerRef: string
     seatCount: number
-    price: number
-    currency: string
+    priceAtHold: number
+    currencyAtHold: string
     holdStatus: string
+    paymentStatus: string
+    submittedAt: Date
     expiresAt: Date
   }>(
-    `SELECT p."holdId", h."tripId", p."customerRef", h."seatCount", t.price, t.currency, h.status AS "holdStatus", h."expiresAt"
+    `SELECT p."holdId", h."tripId", p."customerRef", h."seatCount",
+            COALESCE(h."priceAtHold", t.price) AS "priceAtHold",
+            COALESCE(h."currencyAtHold", t.currency) AS "currencyAtHold",
+            h.status AS "holdStatus", p.status AS "paymentStatus", p."submittedAt", h."expiresAt"
      FROM "payment" p
      JOIN "hold" h ON h.id = p."holdId"
      JOIN "trip" t ON t.id = h."tripId"
@@ -67,15 +71,15 @@ export async function materializeBooking(client: DbClient, input: MaterializeInp
   )
   if (!source.rows[0]) throw new Error('Payment not found')
   const row = source.rows[0]
-  if (input.status === 'CONFIRMED' && (row.holdStatus !== 'ACTIVE' || row.expiresAt <= input.now)) {
+  if (row.paymentStatus !== 'APPROVED' || row.holdStatus !== 'ACTIVE' || row.submittedAt > row.expiresAt) {
     throw new Error('Hold is no longer eligible for Booking confirmation')
   }
   const created = await client.query<Booking>(
     `INSERT INTO "booking" (id, "organizationId", "holdId", "tripId", "paymentId", "customerRef", "seatCount", status, "confirmedAt", "createdAt", "updatedAt")
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'CONFIRMED', $8, $9, $9)
      ON CONFLICT ("paymentId") DO NOTHING
      RETURNING id, "organizationId", "holdId", "tripId", "paymentId", "customerRef", "seatCount", status, "confirmedAt"`,
-    [ulid(), input.organizationId, row.holdId, row.tripId, input.paymentId, row.customerRef, row.seatCount, input.status, input.status === 'CONFIRMED' ? input.now : null, input.now],
+    [ulid(), input.organizationId, row.holdId, row.tripId, input.paymentId, row.customerRef, row.seatCount, input.now, input.now],
   )
   const booking = created.rows[0] ?? (await client.query<Booking>(
     `SELECT id, "organizationId", "holdId", "tripId", "paymentId", "customerRef", "seatCount", status, "confirmedAt"
@@ -85,24 +89,22 @@ export async function materializeBooking(client: DbClient, input: MaterializeInp
   if (!booking) throw new Error('Booking could not be created')
 
   let invoice: Invoice | null = null
-  if (input.status === 'CONFIRMED') {
-    const invoiceResult = await client.query<Invoice>(
-      `INSERT INTO "invoice" (id, "organizationId", "bookingId", amount, currency, status, "issuedAt", "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, $5, 'ISSUED', $6, $6, $6)
-       ON CONFLICT ("bookingId") DO NOTHING
-       RETURNING id, "bookingId", amount, currency, status, "issuedAt"`,
-      [ulid(), input.organizationId, booking.id, invoiceAmount(row.price, row.seatCount), row.currency, input.now],
-    )
-    invoice = invoiceResult.rows[0] ?? (await client.query<Invoice>(
-      `SELECT id, "bookingId", amount, currency, status, "issuedAt" FROM "invoice" WHERE "bookingId" = $1`,
-      [booking.id],
-    )).rows[0] ?? null
-  }
+  const invoiceResult = await client.query<Invoice>(
+    `INSERT INTO "invoice" (id, "organizationId", "bookingId", amount, currency, status, "issuedAt", "createdAt", "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, 'ISSUED', $6, $6, $6)
+     ON CONFLICT ("bookingId") DO NOTHING
+     RETURNING id, "bookingId", amount, currency, status, "issuedAt"`,
+    [ulid(), input.organizationId, booking.id, invoiceAmount(row.priceAtHold, row.seatCount), row.currencyAtHold, input.now],
+  )
+  invoice = invoiceResult.rows[0] ?? (await client.query<Invoice>(
+    `SELECT id, "bookingId", amount, currency, status, "issuedAt" FROM "invoice" WHERE "bookingId" = $1`,
+    [booking.id],
+  )).rows[0] ?? null
 
   await client.query(
     `INSERT INTO "auditEvent" (id, "organizationId", "actorId", action, "entityType", "entityId", metadata, "createdAt")
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [ulid(), input.organizationId, input.actorId, input.status === 'CONFIRMED' ? 'booking.confirmed' : 'payment.rejected', input.status === 'CONFIRMED' ? 'Booking' : 'Payment', input.status === 'CONFIRMED' ? booking.id : input.paymentId, JSON.stringify({ paymentId: input.paymentId }), input.now],
+    [ulid(), input.organizationId, input.actorId, 'booking.confirmed', 'Booking', booking.id, JSON.stringify({ paymentId: input.paymentId }), input.now],
   )
   return { ...booking, invoice }
 }

@@ -7,6 +7,7 @@ type Trip = {
   price: number
   currency: string
   seatQuota: number
+  remainingSeats: number
 }
 
 type Hold = {
@@ -175,7 +176,7 @@ loadTrips()
           <div v-else class="mt-6 space-y-3">
             <button v-for="trip in trips" :key="trip.id" class="w-full rounded-2xl border p-4 text-left transition hover:border-[#77a99b]" :class="selectedTripId === trip.id ? 'border-[#103f38] bg-[#eff7f3]' : 'border-[#dce9e4]'" @click="selectedTripId = trip.id">
               <div class="flex items-center justify-between gap-4"><div class="flex min-w-0 items-center gap-3"><span class="size-2 rounded-full bg-[#c2792c]" /><span class="truncate font-semibold text-[#103f38]">{{ trip.origin }}</span><span class="text-[#8aa39c]">→</span><span class="truncate font-semibold text-[#103f38]">{{ trip.destination }}</span></div><span class="shrink-0 font-semibold text-[#103f38]">{{ formatPrice(trip.price, trip.currency) }}</span></div>
-              <div class="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-[#6d8580]"><span>{{ formatDate(trip.departureAt) }}</span><span>{{ trip.seatQuota }} seats left</span></div>
+              <div class="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-[#6d8580]"><span>{{ formatDate(trip.departureAt) }}</span><span>{{ trip.remainingSeats }} seats left</span></div>
             </button>
           </div>
         </div>
@@ -187,7 +188,7 @@ loadTrips()
           <label class="mt-6 block text-sm font-medium text-[#103f38]">Your contact</label>
           <input v-model="customerRef" class="mt-2 w-full rounded-xl border border-[#d9d3c2] bg-white px-4 py-3 outline-none ring-[#103f38] focus:ring-2" placeholder="you@example.com or +62…" type="text">
           <label class="mt-4 block text-sm font-medium text-[#103f38]">Seats</label>
-          <input v-model.number="seatCount" class="mt-2 w-full rounded-xl border border-[#d9d3c2] bg-white px-4 py-3 outline-none ring-[#103f38] focus:ring-2" min="1" :max="selectedTrip?.seatQuota ?? 1" type="number">
+          <input v-model.number="seatCount" class="mt-2 w-full rounded-xl border border-[#d9d3c2] bg-white px-4 py-3 outline-none ring-[#103f38] focus:ring-2" min="1" :max="selectedTrip?.remainingSeats ?? 1" type="number">
           <button class="mt-5 w-full rounded-xl bg-[#103f38] px-4 py-3 font-semibold text-white transition hover:bg-[#1a554b] disabled:cursor-not-allowed disabled:opacity-40" :disabled="busy || !selectedTrip || !customerRef.trim()" @click="createHold">{{ busy ? 'Working…' : 'Hold these seats' }}</button>
           <p v-if="selectedTrip" class="mt-4 text-xs text-[#6d8580]">Selected: {{ selectedTrip.origin }} → {{ selectedTrip.destination }}</p>
         </div>

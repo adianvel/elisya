@@ -69,6 +69,11 @@ export const chat = new Elysia({ prefix: '/chat' }).post(
             customerRef: requireCustomerRef(),
           }),
         }),
+        cancel_hold: tool<{ holdId: string }, any, any>({
+          description: 'Cancel an unpaid Hold and release its seats.',
+          inputSchema: zodSchema(z.object({ holdId: z.string().min(1) })),
+          execute: (input) => holds.cancel(configuredOrganizationId(), input.holdId, requireCustomerRef()),
+        }),
         submit_payment_proof: tool<{ holdId: string; proofKey: string; idempotencyKey: string }, any, any>({
           description: 'Submit a Customer payment proof for an active Hold.',
           inputSchema: zodSchema(z.object({
