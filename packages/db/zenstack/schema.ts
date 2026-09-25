@@ -616,6 +616,16 @@ export class SchemaType implements SchemaDef {
                     name: "seatCount",
                     type: "Int"
                 },
+                priceAtHold: {
+                    name: "priceAtHold",
+                    type: "Int",
+                    optional: true
+                },
+                currencyAtHold: {
+                    name: "currencyAtHold",
+                    type: "String",
+                    optional: true
+                },
                 status: {
                     name: "status",
                     type: "HoldStatus",
@@ -1573,7 +1583,8 @@ export class SchemaType implements SchemaDef {
             name: "HoldStatus",
             values: {
                 ACTIVE: "ACTIVE",
-                EXPIRED: "EXPIRED"
+                EXPIRED: "EXPIRED",
+                CANCELLED: "CANCELLED"
             }
         },
         PaymentStatus: {

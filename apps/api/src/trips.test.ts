@@ -14,7 +14,7 @@ const trip = (overrides: Partial<Trip> = {}): Trip => ({
   ...overrides,
 })
 
-const store = (trips: Trip[], ownerIds = ['owner-1']): TripStore => ({
+const store = (trips: Trip[], ownerIds = ['owner-1'], reservedSeats: Record<string, number> = {}): TripStore => ({
   isOwner: async (userId, organizationId) => organizationId === 'business-1' && ownerIds.includes(userId),
   create: async (input) => {
     const created = trip({ ...input, id: `trip-${trips.length + 1}` })
@@ -24,10 +24,17 @@ const store = (trips: Trip[], ownerIds = ['owner-1']): TripStore => ({
   update: async (organizationId, id, input) => {
     const current = trips.find((item) => item.organizationId === organizationId && item.id === id)
     if (!current) return null
+    if (input.seatQuota !== undefined && input.seatQuota < (reservedSeats[id] ?? 0)) {
+      throw new Error(`seatQuota cannot be lower than ${reservedSeats[id]} reserved seats`)
+    }
     Object.assign(current, input)
     return current
   },
   findMany: async (organizationId) => trips.filter((item) => item.organizationId === organizationId),
+  findAvailable: async (organizationId, now) => trips
+    .filter((item) => item.organizationId === organizationId && item.status === 'PUBLISHED' && item.departureAt > now)
+    .map((item) => ({ ...item, remainingSeats: item.seatQuota - (reservedSeats[item.id] ?? 0) }))
+    .filter((item) => item.remainingSeats > 0),
 })
 
 describe('Trip service', () => {
@@ -42,7 +49,7 @@ describe('Trip service', () => {
     await expect(service.listAvailable({
       organizationId: 'business-1',
       now: new Date('2029-01-01T00:00:00Z'),
-    })).resolves.toEqual([trip()])
+    })).resolves.toEqual([{ ...trip(), remainingSeats: 10 }])
   })
 
   it('allows only Owners to create Trips for their Travel business', async () => {
@@ -81,5 +88,14 @@ describe('Trip service', () => {
       'trip-1',
       { status: 'PUBLISHED' },
     )).resolves.toMatchObject({ id: 'trip-1', origin: 'Jakarta', status: 'PUBLISHED' })
+  })
+
+  it('rejects a seat quota below reserved seats', async () => {
+    const service = createTripService(store([trip()], ['owner-1'], { 'trip-1': 4 }))
+    await expect(service.update(
+      { userId: 'owner-1', organizationId: 'business-1' },
+      'trip-1',
+      { seatQuota: 3 },
+    )).rejects.toThrow('seatQuota cannot be lower than 4 reserved seats')
   })
 })

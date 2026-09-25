@@ -90,6 +90,11 @@ const store: PaymentStore = {
          RETURNING id, "organizationId", "holdId", "customerRef", "proofKey", status, "rejectionReason", "submittedAt", "reviewedAt"`,
         [ulid(), input.organizationId, input.holdId, input.customerRef, input.proofKey, input.idempotencyKey, now],
       )
+      await client.query(
+        `INSERT INTO "auditEvent" (id, "organizationId", action, "entityType", "entityId", metadata, "createdAt")
+         VALUES ($1, $2, 'payment.submitted', 'Payment', $3, $4, $5)`,
+        [ulid(), input.organizationId, result.rows[0].id, JSON.stringify({ customerRef: input.customerRef }), now],
+      )
       await client.query('COMMIT')
       return result.rows[0]
     } catch (error) {
@@ -129,13 +134,25 @@ const store: PaymentStore = {
          WHERE id = $1 AND "organizationId" = $2`,
         [id, actor.organizationId, review.status, review.status === 'REJECTED' ? review.reason : null, actor.userId, now],
       )
-      await materializeBooking(client, {
-        paymentId: id,
-        organizationId: actor.organizationId,
-        status: review.status === 'APPROVED' ? 'CONFIRMED' : 'PAYMENT_REJECTED',
-        actorId: actor.userId,
-        now,
-      })
+      if (review.status === 'APPROVED') {
+        await materializeBooking(client, {
+          paymentId: id,
+          organizationId: actor.organizationId,
+          actorId: actor.userId,
+          now,
+        })
+      } else {
+        await client.query(
+          `UPDATE "hold" SET status = 'CANCELLED', "updatedAt" = $3
+           WHERE id = $1 AND "organizationId" = $2 AND status = 'ACTIVE'`,
+          [current.rows[0].holdId, actor.organizationId, now],
+        )
+        await client.query(
+          `INSERT INTO "auditEvent" (id, "organizationId", "actorId", action, "entityType", "entityId", metadata, "createdAt")
+           VALUES ($1, $2, $3, 'payment.rejected', 'Payment', $4, $5, $6)`,
+          [ulid(), actor.organizationId, actor.userId, id, JSON.stringify({ reason: review.reason }), now],
+        )
+      }
       const updated = await client.query<PaymentRecord>(
         `SELECT id, "organizationId", "holdId", "customerRef", "proofKey", status, "rejectionReason", "submittedAt", "reviewedAt"
          FROM "payment" WHERE id = $1`,
@@ -184,6 +201,7 @@ export function createPaymentService(paymentStore: PaymentStore = store, notify:
       if (review.status === 'APPROVED' && review.reason) throw new Error('Approval cannot include a rejection reason')
       const payment = publicPayment(await paymentStore.review(actor, id, review, now))
       if (payment.status === 'APPROVED') notify({ eventKey: `booking:${payment.id}:confirmed`, customerRef: payment.customerRef, text: 'Your payment was approved and your Booking is confirmed.' })
+      if (payment.status === 'REJECTED') notify({ eventKey: `payment:${payment.id}:rejected`, customerRef: payment.customerRef, text: `Your Payment was rejected: ${payment.rejectionReason}. The Hold seats were released. Please create a new Hold to try again.` })
       return payment
     },
 

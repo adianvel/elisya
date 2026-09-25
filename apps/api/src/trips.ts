@@ -1,4 +1,5 @@
-import { zenstack } from '@repo/db'
+import { pool, zenstack } from '@repo/db'
+import { RESERVED_SEATS_BY_TRIP } from './reserved-seats'
 
 export type TripStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
 
@@ -13,6 +14,8 @@ export type Trip = {
   seatQuota: number
   status: TripStatus
 }
+
+export type AvailableTrip = Trip & { remainingSeats: number }
 
 export type TripInput = {
   origin: string
@@ -33,8 +36,9 @@ export type TripActor = {
 export type TripStore = {
   isOwner(userId: string, organizationId: string): Promise<boolean>
   create(input: TripInput & { organizationId: string; currency: string; status: TripStatus }): Promise<Trip>
-  update(organizationId: string, id: string, input: TripPatch): Promise<Trip | null>
+  update(organizationId: string, id: string, input: TripPatch, now: Date): Promise<Trip | null>
   findMany(organizationId: string): Promise<Trip[]>
+  findAvailable(organizationId: string, now: Date): Promise<AvailableTrip[]>
 }
 
 export function configuredOrganizationId(): string {
@@ -49,14 +53,84 @@ const store: TripStore = {
     select: { id: true },
   })),
   create: async (input) => zenstack.trip.create({ data: input }) as Promise<Trip>,
-  update: async (organizationId, id, input) => zenstack.trip.update({
-    where: { id },
-    data: input,
-  }) as Promise<Trip>,
+  async update(organizationId, id, input, now) {
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const current = await client.query<Trip>(
+        `SELECT id, "organizationId", origin, destination, "departureAt", price, currency, "seatQuota", status, "vehicleId", "createdAt", "updatedAt"
+         FROM "trip" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
+        [id, organizationId],
+      )
+      if (!current.rows[0]) {
+        await client.query('COMMIT')
+        return null
+      }
+
+      if (input.seatQuota !== undefined) {
+        const reserved = await client.query<{ seats: number }>(
+          `SELECT seats FROM (${RESERVED_SEATS_BY_TRIP}) reserved
+           WHERE reserved."organizationId" = $2 AND reserved."tripId" = $3`,
+          [now, organizationId, id],
+        )
+        const reservedSeats = reserved.rows[0]?.seats ?? 0
+        if (input.seatQuota < reservedSeats) throw new Error(`seatQuota cannot be lower than ${reservedSeats} reserved seats`)
+      }
+
+      const columns = {
+        origin: 'origin',
+        destination: 'destination',
+        departureAt: 'departureAt',
+        price: 'price',
+        currency: 'currency',
+        seatQuota: 'seatQuota',
+        status: 'status',
+      } as const
+      const fields = Object.keys(columns).filter((key) => input[key as keyof TripPatch] !== undefined) as Array<keyof typeof columns>
+      if (!fields.length) {
+        await client.query('COMMIT')
+        return current.rows[0]
+      }
+      const values: unknown[] = [id, organizationId]
+      const assignments = fields.map((field) => {
+        values.push(input[field])
+        return `"${columns[field]}" = $${values.length}`
+      })
+      values.push(now)
+      const updated = await client.query<Trip>(
+        `UPDATE "trip" SET ${assignments.join(', ')}, "updatedAt" = $${values.length}
+         WHERE id = $1 AND "organizationId" = $2
+         RETURNING id, "organizationId", origin, destination, "departureAt", price, currency, "seatQuota", status, "vehicleId", "createdAt", "updatedAt"`,
+        values,
+      )
+      await client.query('COMMIT')
+      return updated.rows[0] ?? null
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  },
   findMany: async (organizationId) => zenstack.trip.findMany({
     where: { organizationId },
     orderBy: { departureAt: 'asc' },
   }) as Promise<Trip[]>,
+  async findAvailable(organizationId, now) {
+    const result = await pool.query<AvailableTrip>(
+      `SELECT t.id, t."organizationId", t.origin, t.destination, t."departureAt", t.price, t.currency,
+              t."seatQuota", t.status, t."vehicleId", t."createdAt", t."updatedAt",
+              GREATEST(t."seatQuota" - COALESCE(reserved.seats, 0), 0)::int AS "remainingSeats"
+       FROM "trip" t
+       LEFT JOIN (${RESERVED_SEATS_BY_TRIP}) reserved
+         ON reserved."organizationId" = t."organizationId" AND reserved."tripId" = t.id
+       WHERE t."organizationId" = $2 AND t.status = 'PUBLISHED' AND t."departureAt" > $1
+         AND t."seatQuota" > COALESCE(reserved.seats, 0)
+       ORDER BY t."departureAt" ASC`,
+      [now, organizationId],
+    )
+    return result.rows
+  },
 }
 
 function validateTrip(input: TripInput): void {
@@ -88,14 +162,13 @@ export function createTripService(tripStore: TripStore = store) {
       const current = (await tripStore.findMany(actor.organizationId)).find((trip) => trip.id === id)
       if (!current) throw new Error('Trip not found')
       validateTrip({ ...current, ...input })
-      const updated = await tripStore.update(actor.organizationId, id, input)
+      const updated = await tripStore.update(actor.organizationId, id, input, new Date())
       if (!updated) throw new Error('Trip not found')
       return updated
     },
 
-    async listAvailable({ organizationId, now = new Date() }: { organizationId: string; now?: Date }): Promise<Trip[]> {
-      const trips = await tripStore.findMany(organizationId)
-      return trips.filter((trip) => trip.status === 'PUBLISHED' && trip.departureAt > now)
+    async listAvailable({ organizationId, now = new Date() }: { organizationId: string; now?: Date }): Promise<AvailableTrip[]> {
+      return tripStore.findAvailable(organizationId, now)
     },
 
     async listOwner(actor: TripActor): Promise<Trip[]> {
