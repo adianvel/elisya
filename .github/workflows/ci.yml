@@ -25,6 +25,15 @@ jobs:
       S3_SECRET_KEY: bar
       S3_BUCKET: default
       S3_REGION: us-east-1
+      BACKUP_S3_ENDPOINT: http://127.0.0.1:9000
+      BACKUP_S3_ACCESS_KEY: foo
+      BACKUP_S3_SECRET_KEY: bar
+      BACKUP_S3_BUCKET: backups
+      BACKUP_S3_REGION: us-east-1
+      BACKUP_S3_PREFIX: postgres
+      BACKUP_DB_PASSWORD: backup-ci-password
+      TECHNICAL_OPERATOR_EMAIL: ops@example.test
+      WAHA_API_KEY: ci-only-waha-key
     services:
       postgres:
         image: postgres:18.4-alpine3.24
@@ -48,7 +57,7 @@ jobs:
       - name: Start test object storage
         run: |
           docker run -d --name ci-s3mock -p 9000:9090 \
-            -e COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=default \
+            -e COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=default,backups \
             adobe/s3mock:5.2.2
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:9000/favicon.ico >/dev/null 2>&1; then break; fi
@@ -70,6 +79,11 @@ jobs:
       - name: Typecheck web app
         working-directory: apps/web
         run: bunx vue-tsc --noEmit --project .nuxt/tsconfig.app.json
+      - name: Typecheck deployment scripts
+        run: >-
+          bunx tsc --ignoreConfig --noEmit --target ESNext --module Preserve
+          --moduleResolution bundler --allowImportingTsExtensions --strict
+          --skipLibCheck --types bun deploy/backup.ts deploy/backup-drill.ts
       - name: Lint web app
         working-directory: apps/web
         run: bun run lint
@@ -77,6 +91,20 @@ jobs:
       - name: Run web unit tests
         working-directory: apps/web
         run: bunx vitest run
+      - run: docker build --target backup -t palawa-backup:ci .
+      - name: Run backup and restore drill
+        run: >-
+          docker run --rm --network host
+          -e DATABASE_URL="$DATABASE_URL"
+          -e PGHOST=127.0.0.1 -e PGPORT=5432 -e PGUSER=palawa -e PGPASSWORD=ci-password
+          -e S3_ENDPOINT="$S3_ENDPOINT" -e S3_ACCESS_KEY="$S3_ACCESS_KEY" -e S3_SECRET_KEY="$S3_SECRET_KEY"
+          -e S3_BUCKET="$S3_BUCKET" -e S3_REGION="$S3_REGION"
+          -e BACKUP_S3_ENDPOINT="$BACKUP_S3_ENDPOINT" -e BACKUP_S3_ACCESS_KEY="$BACKUP_S3_ACCESS_KEY"
+          -e BACKUP_S3_SECRET_KEY="$BACKUP_S3_SECRET_KEY" -e BACKUP_S3_BUCKET="$BACKUP_S3_BUCKET"
+          -e BACKUP_S3_REGION="$BACKUP_S3_REGION" -e BACKUP_S3_PREFIX="$BACKUP_S3_PREFIX"
+          -e BACKUP_DB_PASSWORD="$BACKUP_DB_PASSWORD"
+          -e TECHNICAL_OPERATOR_EMAIL="$TECHNICAL_OPERATOR_EMAIL"
+          palawa-backup:ci run deploy/backup-drill.ts
       - run: docker build --target api -t palawa-api:ci .
       - run: docker build --target tasks -t palawa-tasks:ci .
       - run: docker build --target migrate -t palawa-migrate:ci .

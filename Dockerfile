@@ -27,6 +27,18 @@ CMD ["bun", "run", "apps/tasks/src/index.ts"]
 FROM app-runtime AS migrate
 CMD ["bun", "run", "packages/db/migrate.ts"]
 
+FROM postgres:18.4-alpine3.24 AS backup
+COPY --from=app-runtime /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=app-runtime /app/node_modules /app/node_modules
+COPY --from=app-runtime /app/packages /app/packages
+COPY deploy/backup.ts deploy/backup-drill.ts /app/deploy/
+COPY deploy/postgres/ensure-backup-role.sh /app/deploy/postgres/
+WORKDIR /app
+ENV NODE_ENV=production
+EXPOSE 8082
+ENTRYPOINT ["bun"]
+CMD ["run", "deploy/backup.ts"]
+
 FROM oven/bun:1.3.14-alpine AS web-build
 WORKDIR /app
 COPY . .
