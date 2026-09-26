@@ -27,7 +27,90 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      backup-role:
+        condition: service_completed_successfully
     restart: "no"
+
+  backup-role:
+    image: postgres:18.4-alpine3.24
+    entrypoint: ["sh", "/deploy/postgres/ensure-backup-role.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD:?set BACKUP_DB_PASSWORD}
+    volumes:
+      - ./deploy/postgres:/deploy/postgres:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backup:
+    build:
+      context: .
+      target: backup
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: backup
+      PGPASSWORD: ${BACKUP_DB_PASSWORD:?set BACKUP_DB_PASSWORD}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:?set BACKUP_S3_ENDPOINT}
+      BACKUP_S3_ACCESS_KEY: ${BACKUP_S3_ACCESS_KEY:?set BACKUP_S3_ACCESS_KEY}
+      BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:?set BACKUP_S3_SECRET_KEY}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:?set BACKUP_S3_BUCKET}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:?set BACKUP_S3_REGION}
+      BACKUP_S3_PREFIX: postgres
+      WAHA_API_KEY: ${WAHA_API_KEY:?set WAHA_API_KEY}
+      TECHNICAL_OPERATOR_EMAIL: ${TECHNICAL_OPERATOR_EMAIL:?set TECHNICAL_OPERATOR_EMAIL}
+      SMTP_HOST: ${SMTP_HOST:?set SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:?set SMTP_PORT}
+      SMTP_USER: ${SMTP_USER:?set SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS:?set SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM:?set SMTP_FROM}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      backup-role:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:8082/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10m
+    restart: unless-stopped
+
+  restore:
+    build:
+      context: .
+      target: backup
+    profiles: [restore]
+    entrypoint: ["bun", "run", "deploy/backup.ts"]
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/palawa
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:?set BACKUP_S3_ENDPOINT}
+      BACKUP_S3_ACCESS_KEY: ${BACKUP_S3_ACCESS_KEY:?set BACKUP_S3_ACCESS_KEY}
+      BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:?set BACKUP_S3_SECRET_KEY}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:?set BACKUP_S3_BUCKET}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:?set BACKUP_S3_REGION}
+      BACKUP_S3_PREFIX: postgres
+      BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD:?set BACKUP_DB_PASSWORD}
+      S3_ENDPOINT: ${S3_ENDPOINT:?set S3_ENDPOINT}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET}
+      S3_REGION: ${S3_REGION:?set S3_REGION}
+      TECHNICAL_OPERATOR_EMAIL: ${TECHNICAL_OPERATOR_EMAIL:?set TECHNICAL_OPERATOR_EMAIL}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   tasks:
     build:
@@ -44,6 +127,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      backup:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:8081/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
@@ -81,6 +166,8 @@ services:
       migrate:
         condition: service_completed_successfully
       tasks:
+        condition: service_healthy
+      backup:
         condition: service_healthy
     ports:
       - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
@@ -144,7 +231,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5678/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5678/healthz/readiness').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 5
