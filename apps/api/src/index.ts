@@ -9,12 +9,15 @@ import { logger, readLogs } from '@repo/logger';
 import * as storage from '@repo/storage';
 import { chat } from './chat';
 import { configuredOrganizationId, trips } from './trips';
-import { holds } from './holds';
 import { payments } from './payments';
 import { bookings } from './bookings';
 import { dashboard } from './dashboard';
-import { handleWhatsAppInbound, mapWhatsAppInbound } from './integrations';
+import { handleWhatsAppInbound, isN8nWebhookAuthorized, mapWhatsAppInbound, WhatsAppSenderError } from './integrations';
+import { handleWhatsAppMedia, mapWhatsAppMediaInbound, MAX_PAYMENT_PROOF_BYTES, WhatsAppMediaInputError, WhatsAppMediaProcessingError } from './whatsapp-media';
 import { enqueueTask, stopTasks } from "./lib/tasks";
+
+const PAYMENT_PROOF_PREFIX = 'payment-proofs/';
+const isPaymentProofKey = (key: string) => key.startsWith(PAYMENT_PROOF_PREFIX);
 
 const AuthService = new Elysia({ name: "better-auth" })
   .mount(auth.handler);
@@ -124,10 +127,10 @@ const app = new Elysia()
   )
   .group('/storage', (app) =>
     app
-      .post('/presign', ({ body }) => ({
-        key: body.key,
-        url: storage.presign(body.key, body),
-      }), {
+      .post('/presign', ({ body, status }) => {
+        if (isPaymentProofKey(body.key)) return status(404)
+        return { key: body.key, url: storage.presign(body.key, body) }
+      }, {
         body: t.Object({
           key: t.String({ minLength: 1, maxLength: 1024 }),
           method: t.Optional(t.Union([
@@ -140,27 +143,33 @@ const app = new Elysia()
         }),
         auth: true,
       })
-      .post('/upload', ({ body, user }) =>
-        storage.upload({ scope: user.id, key: body.key, file: body.file }), {
+      .post('/upload', ({ body, user, status }) => {
+        if (body.key && isPaymentProofKey(body.key)) return status(404)
+        return storage.upload({ scope: user.id, key: body.key, file: body.file })
+      }, {
         body: t.Object({
           file: t.File({ maxSize: '100m' }),
           key: t.Optional(t.String({ minLength: 1, maxLength: 1024 })),
         }),
         auth: true,
       })
-      .get('/objects/*', async ({ params }) => {
+      .get('/objects/*', async ({ params, status }) => {
+        if (isPaymentProofKey(params['*'])) return status(404)
         const s3file = await storage.download(params['*']);
         return s3file ? new Response(s3file) : { error: 'Not found' };
       }, {
         auth: true,
       })
-      .delete('/objects/*', async ({ params }) => storage.removeObject(params['*']), {
+      .delete('/objects/*', async ({ params, status }) => isPaymentProofKey(params['*']) ? status(404) : storage.removeObject(params['*']), {
         auth: true,
       })
-      .get('/stat/*', async ({ params }) => storage.statObject(params['*']), {
+      .get('/stat/*', async ({ params, status }) => isPaymentProofKey(params['*']) ? status(404) : storage.statObject(params['*']), {
         auth: true,
       })
-      .get('/list', async ({ query }) => storage.listObjects(query), {
+      .get('/list', async ({ query }) => {
+        const result = await storage.listObjects(query)
+        return { ...result, contents: result.contents.filter((object) => !isPaymentProofKey(object.key)) }
+      }, {
         query: t.Object({
           prefix: t.Optional(t.String({ maxLength: 1024 })),
           maxKeys: t.Optional(t.Number({ minimum: 1, maximum: 1000 })),
@@ -244,45 +253,8 @@ const app = new Elysia()
         auth: true,
       })
   )
-  .group('/holds', (app) =>
-    app
-      .post('/', ({ body }) => holds.create({
-        organizationId: configuredOrganizationId(),
-        tripId: body.tripId,
-        customerRef: body.customerRef,
-        seatCount: body.seatCount,
-        idempotencyKey: body.idempotencyKey,
-      }), {
-        body: t.Object({
-          tripId: t.String({ minLength: 1 }),
-          customerRef: t.String({ minLength: 1, maxLength: 255 }),
-          seatCount: t.Integer({ minimum: 1 }),
-          idempotencyKey: t.String({ minLength: 1, maxLength: 255 }),
-        }),
-      })
-      .get('/:id', async ({ params }) => {
-        const hold = await holds.get(configuredOrganizationId(), params.id)
-        return hold ?? { error: 'Hold not found' }
-      }, {
-        params: t.Object({ id: t.String({ minLength: 1 }) }),
-      })
-  )
   .group('/payments', (app) =>
     app
-      .post('/', ({ body }) => payments.submit({
-        organizationId: configuredOrganizationId(),
-        holdId: body.holdId,
-        customerRef: body.customerRef,
-        proofKey: body.proofKey,
-        idempotencyKey: body.idempotencyKey,
-      }), {
-        body: t.Object({
-          holdId: t.String({ minLength: 1 }),
-          customerRef: t.String({ minLength: 1, maxLength: 255 }),
-          proofKey: t.String({ minLength: 1, maxLength: 1024 }),
-          idempotencyKey: t.String({ minLength: 1, maxLength: 255 }),
-        }),
-      })
       .get('/manage', async ({ query, user, members, status }) => {
         const actor = ownerActor(user, query.organizationId, members)
         if (!actor) return status(403)
@@ -309,7 +281,7 @@ const app = new Elysia()
         if (!actor) return status(403)
         const key = await payments.getProof(actor, params.id)
         const file = await storage.download(key)
-        return file ? new Response(file) : status(404)
+        return file ? new Response(file, { headers: { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } }) : status(404)
       }, {
         params: t.Object({ id: t.String({ minLength: 1 }) }),
         query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
@@ -325,13 +297,6 @@ const app = new Elysia()
       }, {
         query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
         auth: true,
-      })
-      .get('/:id', async ({ params, query }) => {
-        const booking = await bookings.getForCustomer(configuredOrganizationId(), query.customerRef, params.id)
-        return booking ?? { error: 'Booking not found' }
-      }, {
-        params: t.Object({ id: t.String({ minLength: 1 }) }),
-        query: t.Object({ customerRef: t.String({ minLength: 1, maxLength: 255 }) }),
       })
   )
   .group('/dashboard', (app) =>
@@ -356,16 +321,41 @@ const app = new Elysia()
   .group('/integrations', (app) =>
     app
       .post('/n8n/whatsapp', async ({ request, body, status }) => {
-        const secret = process.env.N8N_WEBHOOK_SECRET
-        const authorization = request.headers.get('authorization')
-        if (!secret || authorization !== `Bearer ${secret}`) return status(401)
+        if (!isN8nWebhookAuthorized(request)) return status(401)
+        let input
         try {
-          return handleWhatsAppInbound(configuredOrganizationId(), mapWhatsAppInbound(body))
+          input = mapWhatsAppInbound(body)
         } catch (error) {
           return status(400, error instanceof Error ? error.message : 'Invalid WhatsApp payload')
         }
+        return handleWhatsAppInbound(configuredOrganizationId(), input)
       }, {
         body: t.Record(t.String(), t.Unknown()),
+      })
+      .post('/n8n/whatsapp/media', async ({ request, body, status }) => {
+        if (!isN8nWebhookAuthorized(request)) return status(401)
+        let mediaInput: ReturnType<typeof mapWhatsAppMediaInbound>
+        try {
+          mediaInput = mapWhatsAppMediaInbound(JSON.parse(body.wahaEvent), body.holdId, body.file)
+        } catch (error) {
+          if (error instanceof SyntaxError || error instanceof WhatsAppMediaInputError) {
+            return status(400, error.message)
+          }
+          throw error
+        }
+        try {
+          return await handleWhatsAppMedia(configuredOrganizationId(), mediaInput)
+        } catch (error) {
+          if (error instanceof WhatsAppMediaProcessingError) return status(409, error.message)
+          if (error instanceof WhatsAppMediaInputError || error instanceof WhatsAppSenderError) return status(400, error.message)
+          throw error
+        }
+      }, {
+        body: t.Object({
+          wahaEvent: t.String({ minLength: 2, maxLength: 100_000 }),
+          holdId: t.String({ minLength: 1, maxLength: 255 }),
+          file: t.File({ maxSize: MAX_PAYMENT_PROOF_BYTES }),
+        }),
       })
   )
   .use(chat)

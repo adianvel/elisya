@@ -4,7 +4,7 @@ import { createPaymentService, type PaymentRecord, type PaymentStore } from './p
 function fakeStore(): PaymentStore {
   const rows: PaymentRecord[] = []
   return {
-    isOwner: async (userId, organizationId) => userId === 'owner-1' && organizationId === 'org-1',
+    isOwner: async (userId, organizationId) => (userId === 'owner-1' && organizationId === 'org-1') || (userId === 'owner-2' && organizationId === 'org-2'),
     submit: async (input) => {
       const existing = rows.find((row) => row.organizationId === input.organizationId && row.customerRef === input.customerRef && row.id === input.idempotencyKey)
       if (existing) return existing
@@ -71,5 +71,13 @@ describe('Payment service', () => {
     await expect(service.review({ userId: 'owner-1', organizationId: 'org-1' }, payment.id, { status: 'REJECTED' })).rejects.toThrow('Rejection reason is required')
     const rejected = await service.review({ userId: 'owner-1', organizationId: 'org-1' }, payment.id, { status: 'REJECTED', reason: 'Amount does not match' })
     expect(rejected).toMatchObject({ status: 'REJECTED', rejectionReason: 'Amount does not match' })
+  })
+
+  it('only lets the Owner of the Payment organization retrieve its proof key', async () => {
+    const service = createPaymentService(fakeStore(), silentNotify)
+    const payment = await service.submit(input)
+
+    await expect(service.getProof({ userId: 'owner-1', organizationId: 'org-1' }, payment.id)).resolves.toBe(input.proofKey)
+    await expect(service.getProof({ userId: 'owner-2', organizationId: 'org-2' }, payment.id)).rejects.toThrow('Payment proof not found')
   })
 })
