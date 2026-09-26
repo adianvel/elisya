@@ -13,7 +13,7 @@
     "dev:tasks": "bun run --filter @repo/tasks dev",
     "db:push": "bun run --filter @repo/db db:push",
     "db:generate": "bun run --filter @repo/db db:generate",
-    "db:migrate": "bun run --filter @repo/db db:migrate",
+    "db:migrate": "bun run packages/db/migrate.ts",
     "auth:generate": "bun run --filter @repo/auth auth:generate"
   },
   "devDependencies": {
