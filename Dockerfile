@@ -32,6 +32,7 @@ COPY --from=app-runtime /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=app-runtime /app/node_modules /app/node_modules
 COPY --from=app-runtime /app/packages /app/packages
 COPY deploy/backup.ts deploy/backup-drill.ts /app/deploy/
+COPY deploy/postgres/ensure-backup-role.sh /app/deploy/postgres/
 WORKDIR /app
 ENV NODE_ENV=production
 EXPOSE 8082

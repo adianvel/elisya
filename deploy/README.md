@@ -57,7 +57,7 @@ Then browse to http://127.0.0.1:3000. Use WAHA_API_KEY for the corresponding n8n
 
 ## Backups and alerts
 
-The backup service starts after the migration runner, uploads custom-format dumps of the palawa and n8n databases to BACKUP_S3_BUCKET under postgres/<UTC backup ID>/, and repeats hourly. It writes the manifest last, so incomplete uploads aren't treated as restore points. The backup-role one-shot service creates or updates a dedicated read-only PostgreSQL role, including on an existing data volume. Backup failures and state changes in PostgreSQL, pg-boss, COS, the worker, n8n, WAHA, and the default WAHA session alert TECHNICAL_OPERATOR_EMAIL through SMTP. Docker health reports when the last successful backup is over two hours old.
+The backup service starts after the migration runner, uploads custom-format dumps of the palawa and n8n databases to BACKUP_S3_BUCKET under postgres/<UTC backup ID>/, and repeats hourly. It writes the manifest last, so incomplete uploads aren't treated as restore points. The backup-role one-shot service creates or updates a dedicated read-only PostgreSQL role, including on an existing data volume. Backup failures and state changes in PostgreSQL, pg-boss, COS, the worker, n8n, WAHA, and the default WAHA session alert TECHNICAL_OPERATOR_EMAIL through SMTP. API and worker startup do not depend on COS availability; Docker health reports when the last successful backup is over two hours old.
 
 Keep the BACKUP_S3_* key separate from the proof bucket key. The backup bucket contains the app and n8n databases; the proof bucket already lives outside the VPS and remains the source for Payment proof files after database recovery. Keep a secure copy of .env.production, including N8N_ENCRYPTION_KEY, outside the VPS.
 

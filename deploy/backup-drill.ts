@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { pool } from '../packages/db/index.ts'
 import { S3Client } from 'bun'
@@ -10,16 +11,6 @@ const proofS3 = new S3Client({
   bucket: process.env.S3_BUCKET!,
   region: process.env.S3_REGION ?? 'us-east-1',
 })
-
-async function ensureBackupRole(password: string) {
-  if (!/^[A-Za-z0-9_-]{16,}$/.test(password)) throw new Error('BACKUP_DB_PASSWORD must be a generated safe secret')
-  const role = await pool.query('SELECT 1 FROM pg_roles WHERE rolname = $1', ['backup'])
-  const action = role.rowCount ? 'ALTER' : 'CREATE'
-  await pool.query(`${action} ROLE backup WITH LOGIN PASSWORD '${password}'`)
-  await pool.query('GRANT pg_read_all_data TO backup')
-  await pool.query('GRANT CONNECT ON DATABASE palawa TO backup')
-  await pool.query('GRANT CONNECT ON DATABASE n8n TO backup')
-}
 
 async function ensureN8nDatabase() {
   const role = await pool.query('SELECT 1 FROM pg_roles WHERE rolname = $1', ['n8n'])
@@ -37,16 +28,16 @@ const tripId = `trip-${suffix}`
 const holdId = `hold-${suffix}`
 const paymentId = `payment-${suffix}`
 const proofKey = `payment-proofs/backup-drill-${suffix}.pdf`
+const proofContents = 'Palawa backup drill proof'
 const now = new Date()
 
 try {
   await ensureN8nDatabase()
   const adminUser = process.env.PGUSER
   const adminPassword = process.env.PGPASSWORD
-  const backupPassword = process.env.BACKUP_DB_PASSWORD
-  if (!backupPassword) throw new Error('BACKUP_DB_PASSWORD is required for the restore drill')
-  await ensureBackupRole(backupPassword)
-  await proofS3.write(proofKey, new Blob(['Palawa backup drill proof'], { type: 'application/pdf' }), { type: 'application/pdf' })
+  if (!process.env.BACKUP_DB_PASSWORD) throw new Error('BACKUP_DB_PASSWORD is required for the restore drill')
+  await runPostgresTool('sh', ['deploy/postgres/ensure-backup-role.sh'])
+  await proofS3.write(proofKey, new Blob([proofContents], { type: 'application/pdf' }), { type: 'application/pdf' })
   await pool.query(
     `INSERT INTO "organization" (id, name, slug, "createdAt") VALUES ($1, 'Backup drill', $1, $2)`,
     [organizationId, now],
@@ -68,7 +59,7 @@ try {
   )
 
   process.env.PGUSER = 'backup'
-  process.env.PGPASSWORD = backupPassword
+  process.env.PGPASSWORD = process.env.BACKUP_DB_PASSWORD
   try {
     await createBackup(backupId)
   } finally {
@@ -87,8 +78,12 @@ try {
     '--no-align',
     '--command', `SELECT "proofKey" FROM "payment" WHERE id = '${paymentId}'`,
   ], true)
-  if (restoredProofKey !== proofKey || !(await proofS3.file(proofKey).exists())) {
-    throw new Error('Restored Payment proof reference or COS object is missing')
+  let restoredProofContents = ''
+  for await (const chunk of proofS3.file(proofKey).stream() as AsyncIterable<Uint8Array>) {
+    restoredProofContents += Buffer.from(chunk).toString('utf8')
+  }
+  if (restoredProofKey !== proofKey || restoredProofContents !== proofContents) {
+    throw new Error('Restored Payment proof reference or file contents are missing')
   }
 
   console.info(JSON.stringify({ event: 'backup-restore-drill-passed', backupId, proofAccessible: true }))
