@@ -30,6 +30,12 @@ const store = (trips: Trip[], ownerIds = ['owner-1'], reservedSeats: Record<stri
     Object.assign(current, input)
     return current
   },
+  cancel: async (organizationId, id) => {
+    const current = trips.find((item) => item.organizationId === organizationId && item.id === id)
+    if (!current) return null
+    current.status = 'CANCELLED'
+    return current
+  },
   findMany: async (organizationId) => trips.filter((item) => item.organizationId === organizationId),
   findAvailable: async (organizationId, now) => trips
     .filter((item) => item.organizationId === organizationId && item.status === 'PUBLISHED' && item.departureAt > now)

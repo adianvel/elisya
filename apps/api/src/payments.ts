@@ -124,6 +124,18 @@ const store: PaymentStore = {
     const client = await pool.connect()
     try {
       await client.query('BEGIN')
+      const target = await client.query<{ holdId: string }>(
+        `SELECT "holdId" FROM "payment" WHERE id = $1 AND "organizationId" = $2`,
+        [id, actor.organizationId],
+      )
+      if (!target.rows[0]) throw new Error('Payment not found')
+      const trip = await client.query<{ id: string }>(
+        `SELECT t.id
+         FROM "trip" t JOIN "hold" h ON h."tripId" = t.id AND h."organizationId" = t."organizationId"
+         WHERE h.id = $1 AND h."organizationId" = $2 FOR UPDATE OF t`,
+        [target.rows[0].holdId, actor.organizationId],
+      )
+      if (!trip.rows[0]) throw new Error('Payment not found')
       const current = await client.query<PaymentRecord>(
         `SELECT id, "organizationId", "holdId", "customerRef", "proofKey", status, "rejectionReason", "submittedAt", "reviewedAt"
          FROM "payment" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,

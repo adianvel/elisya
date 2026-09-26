@@ -4,12 +4,14 @@ import { notifyWhatsApp } from './notifications'
 import type { NotificationSink } from './holds'
 
 export type CancellationRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+export type CancellationSource = 'CUSTOMER' | 'TRIP'
 export type CancellationRequest = {
   id: string
   organizationId: string
   bookingId: string | null
   paymentId: string | null
   customerRef: string
+  source: CancellationSource
   status: CancellationRequestStatus
   reason: string | null
   requestedAt: Date
@@ -47,7 +49,7 @@ export type Refund = {
 export type CancellationReviewResult = { cancellation: CancellationRequest; refund: Refund | null }
 export type RefundCompletionInput = { transferDate: Date; transferReference: string }
 
-const SELECT_CANCELLATION = `SELECT id, "organizationId", "bookingId", "paymentId", "customerRef", status, reason, "requestedAt", "reviewedAt"
+const SELECT_CANCELLATION = `SELECT id, "organizationId", "bookingId", "paymentId", "customerRef", source, status, reason, "requestedAt", "reviewedAt"
   FROM "cancellationRequest"`
 const SELECT_REFUND = `SELECT id, "organizationId", "bookingId", "paymentId", "customerRef", amount, currency, status, "transferredAt", "transferReference", "recordedBy", "createdAt", "updatedAt"
   FROM "refund"`
@@ -116,11 +118,27 @@ export function createCancellationService(notify: NotificationSink = notifyWhats
         }
 
         if (bookingId) {
+          const target = await client.query<{ tripId: string }>(
+            `SELECT "tripId" FROM "booking" WHERE id = $1 AND "organizationId" = $2 AND "customerRef" = $3`,
+            [bookingId, input.organizationId, input.customerRef],
+          )
+          if (!target.rows[0]) {
+            await client.query('ROLLBACK')
+            return null
+          }
+          const trip = await client.query<{ id: string }>(
+            `SELECT id FROM "trip" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
+            [target.rows[0].tripId, input.organizationId],
+          )
+          if (!trip.rows[0]) {
+            await client.query('ROLLBACK')
+            return null
+          }
           const booking = await client.query<{ status: string; departureAt: Date }>(
             `SELECT b.status, t."departureAt"
              FROM "booking" b JOIN "trip" t ON t.id = b."tripId" AND t."organizationId" = b."organizationId"
              WHERE b.id = $1 AND b."organizationId" = $2 AND b."customerRef" = $3
-             FOR UPDATE OF b, t`,
+             FOR UPDATE OF b`,
             [bookingId, input.organizationId, input.customerRef],
           )
           if (!booking.rows[0]) {
@@ -131,16 +149,34 @@ export function createCancellationService(notify: NotificationSink = notifyWhats
             throw new Error('Booking cancellation can only be requested before departure')
           }
         } else {
-          const payment = await client.query<{ departureAt: Date }>(
-            `SELECT t."departureAt"
+          const target = await client.query<{ tripId: string }>(
+            `SELECT h."tripId" FROM "payment" p
+             JOIN "hold" h ON h.id = p."holdId" AND h."organizationId" = p."organizationId"
+             WHERE p.id = $1 AND p."organizationId" = $2 AND p."customerRef" = $3`,
+            [paymentId, input.organizationId, input.customerRef],
+          )
+          if (!target.rows[0]) {
+            await client.query('ROLLBACK')
+            return null
+          }
+          const trip = await client.query<{ id: string }>(
+            `SELECT id FROM "trip" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
+            [target.rows[0].tripId, input.organizationId],
+          )
+          if (!trip.rows[0]) {
+            await client.query('ROLLBACK')
+            return null
+          }
+          const payment = await client.query<{ status: string; departureAt: Date }>(
+            `SELECT p.status, t."departureAt"
              FROM "payment" p
              JOIN "hold" h ON h.id = p."holdId" AND h."organizationId" = p."organizationId"
              JOIN "trip" t ON t.id = h."tripId" AND t."organizationId" = h."organizationId"
-             WHERE p.id = $1 AND p."organizationId" = $2 AND p."customerRef" = $3 AND p.status = 'PENDING'
-             FOR UPDATE OF p, h, t`,
+             WHERE p.id = $1 AND p."organizationId" = $2 AND p."customerRef" = $3
+             FOR UPDATE OF p, h`,
             [paymentId, input.organizationId, input.customerRef],
           )
-          if (!payment.rows[0]) {
+          if (!payment.rows[0] || payment.rows[0].status !== 'PENDING') {
             await client.query('ROLLBACK')
             return null
           }
@@ -161,7 +197,7 @@ export function createCancellationService(notify: NotificationSink = notifyWhats
         const result = await client.query<CancellationRequest>(
           `INSERT INTO "cancellationRequest" (id, "organizationId", "bookingId", "paymentId", "customerRef", "idempotencyKey", status, "requestedAt", "createdAt", "updatedAt")
            VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7, $7, $7)
-           RETURNING id, "organizationId", "bookingId", "paymentId", "customerRef", status, reason, "requestedAt", "reviewedAt"`,
+           RETURNING id, "organizationId", "bookingId", "paymentId", "customerRef", source, status, reason, "requestedAt", "reviewedAt"`,
           [ulid(), input.organizationId, bookingId, paymentId, input.customerRef, input.idempotencyKey, now],
         )
         created = result.rows[0]
@@ -228,12 +264,68 @@ export function createCancellationService(notify: NotificationSink = notifyWhats
       let result: CancellationReviewResult
       try {
         await client.query('BEGIN')
-        const current = await client.query<CancellationRequest>(
+        const initial = await client.query<CancellationRequest>(
+          `${SELECT_CANCELLATION} WHERE id = $1 AND "organizationId" = $2`,
+          [id, actor.organizationId],
+        )
+        if (!initial.rows[0]) throw new Error('Cancellation request not found')
+        let cancellation = initial.rows[0]
+        if (cancellation.status !== 'PENDING') {
+          const refund = await findRefundForCancellation(client, cancellation)
+          await client.query('COMMIT')
+          return { cancellation, refund }
+        }
+
+        const targetTrip = cancellation.bookingId
+          ? await client.query<{ tripId: string }>(`SELECT "tripId" FROM "booking" WHERE id = $1 AND "organizationId" = $2`, [cancellation.bookingId, actor.organizationId])
+          : await client.query<{ tripId: string }>(
+            `SELECT h."tripId" FROM "payment" p JOIN "hold" h ON h.id = p."holdId" AND h."organizationId" = p."organizationId"
+             WHERE p.id = $1 AND p."organizationId" = $2`,
+            [cancellation.paymentId, actor.organizationId],
+          )
+        if (!targetTrip.rows[0]) throw new Error('Cancellation request target not found')
+        const trip = await client.query<{ id: string }>(
+          `SELECT id FROM "trip" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
+          [targetTrip.rows[0].tripId, actor.organizationId],
+        )
+        if (!trip.rows[0]) throw new Error('Cancellation request target not found')
+
+        const booking = cancellation.bookingId
+          ? await client.query<{ holdId: string; customerRef: string; status: string; amount: number; currency: string }>(
+            `SELECT b."holdId", b."customerRef", b.status, i.amount, i.currency
+             FROM "booking" b
+             JOIN "hold" h ON h.id = b."holdId" AND h."organizationId" = b."organizationId"
+             JOIN "invoice" i ON i."bookingId" = b.id AND i."organizationId" = b."organizationId"
+             WHERE b.id = $1 AND b."organizationId" = $2 FOR UPDATE OF b, h`,
+            [cancellation.bookingId, actor.organizationId],
+          )
+          : null
+        const payment = cancellation.paymentId
+          ? await client.query<{
+            status: string
+            holdId: string
+            customerRef: string
+            holdStatus: string
+            seatCount: number
+            price: number
+            currency: string
+          }>(
+            `SELECT p.status, p."holdId", p."customerRef", h.status AS "holdStatus", h."seatCount",
+                    COALESCE(h."priceAtHold", t.price) AS price, COALESCE(h."currencyAtHold", t.currency) AS currency
+             FROM "payment" p
+             JOIN "hold" h ON h.id = p."holdId" AND h."organizationId" = p."organizationId"
+             JOIN "trip" t ON t.id = h."tripId" AND t."organizationId" = h."organizationId"
+             WHERE p.id = $1 AND p."organizationId" = $2 FOR UPDATE OF p, h`,
+            [cancellation.paymentId, actor.organizationId],
+          )
+          : null
+
+        const locked = await client.query<CancellationRequest>(
           `${SELECT_CANCELLATION} WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
           [id, actor.organizationId],
         )
-        if (!current.rows[0]) throw new Error('Cancellation request not found')
-        const cancellation = current.rows[0]
+        if (!locked.rows[0]) throw new Error('Cancellation request not found')
+        cancellation = locked.rows[0]
         if (cancellation.status !== 'PENDING') {
           const refund = await findRefundForCancellation(client, cancellation)
           await client.query('COMMIT')
@@ -246,7 +338,7 @@ export function createCancellationService(notify: NotificationSink = notifyWhats
           const updated = await client.query<CancellationRequest>(
             `UPDATE "cancellationRequest" SET status = 'REJECTED', reason = $3, "reviewedBy" = $4, "reviewedAt" = $5, "updatedAt" = $5
              WHERE id = $1 AND "organizationId" = $2
-             RETURNING id, "organizationId", "bookingId", "paymentId", "customerRef", status, reason, "requestedAt", "reviewedAt"`,
+             RETURNING id, "organizationId", "bookingId", "paymentId", "customerRef", source, status, reason, "requestedAt", "reviewedAt"`,
             [id, actor.organizationId, reason, actor.userId, now],
           )
           await writeAuditEvent(client, actor.organizationId, actor.userId, 'cancellation.rejected', 'CancellationRequest', id, { reason }, now)
@@ -258,13 +350,7 @@ export function createCancellationService(notify: NotificationSink = notifyWhats
           result = { cancellation: updated.rows[0]!, refund: null }
         } else if (cancellation.bookingId && review.decision === 'APPROVE') {
           if (review.fundsReceived !== undefined) throw new Error('fundsReceived is only used for pending Payments')
-          const booking = await client.query<{ holdId: string; customerRef: string; status: string; amount: number; currency: string }>(
-            `SELECT b."holdId", b."customerRef", b.status, i.amount, i.currency
-             FROM "booking" b JOIN "invoice" i ON i."bookingId" = b.id AND i."organizationId" = b."organizationId"
-             WHERE b.id = $1 AND b."organizationId" = $2 FOR UPDATE OF b`,
-            [cancellation.bookingId, actor.organizationId],
-          )
-          if (!booking.rows[0] || booking.rows[0].status !== 'CONFIRMED') throw new Error('Booking is no longer cancellable')
+          if (!booking?.rows[0] || booking.rows[0].status !== 'CONFIRMED') throw new Error('Booking is no longer cancellable')
           await client.query(
             `UPDATE "booking" SET status = 'CANCELLED', "updatedAt" = $3 WHERE id = $1 AND "organizationId" = $2`,
             [cancellation.bookingId, actor.organizationId, now],
@@ -285,7 +371,7 @@ export function createCancellationService(notify: NotificationSink = notifyWhats
           const updated = await client.query<CancellationRequest>(
             `UPDATE "cancellationRequest" SET status = 'APPROVED', "reviewedBy" = $3, "reviewedAt" = $4, "updatedAt" = $4
              WHERE id = $1 AND "organizationId" = $2
-             RETURNING id, "organizationId", "bookingId", "paymentId", "customerRef", status, reason, "requestedAt", "reviewedAt"`,
+             RETURNING id, "organizationId", "bookingId", "paymentId", "customerRef", source, status, reason, "requestedAt", "reviewedAt"`,
             [id, actor.organizationId, actor.userId, now],
           )
           for (const [action, entityType, entityId, metadata] of [
@@ -306,24 +392,7 @@ export function createCancellationService(notify: NotificationSink = notifyWhats
           if (typeof review.fundsReceived !== 'boolean') {
             throw new Error('Pending Payment cancellation review requires a fundsReceived decision')
           }
-          const payment = await client.query<{
-            status: string
-            holdId: string
-            customerRef: string
-            holdStatus: string
-            seatCount: number
-            price: number
-            currency: string
-          }>(
-            `SELECT p.status, p."holdId", p."customerRef", h.status AS "holdStatus", h."seatCount",
-                    COALESCE(h."priceAtHold", t.price) AS price, COALESCE(h."currencyAtHold", t.currency) AS currency
-             FROM "payment" p
-             JOIN "hold" h ON h.id = p."holdId" AND h."organizationId" = p."organizationId"
-             JOIN "trip" t ON t.id = h."tripId" AND t."organizationId" = h."organizationId"
-             WHERE p.id = $1 AND p."organizationId" = $2 FOR UPDATE OF p, h`,
-            [cancellation.paymentId, actor.organizationId],
-          )
-          if (!payment.rows[0] || payment.rows[0].status !== 'PENDING' || payment.rows[0].holdStatus !== 'ACTIVE') {
+          if (!payment?.rows[0] || payment.rows[0].status !== 'PENDING' || payment.rows[0].holdStatus !== 'ACTIVE') {
             throw new Error('Payment is no longer awaiting cancellation review')
           }
           const row = payment.rows[0]
@@ -367,7 +436,7 @@ export function createCancellationService(notify: NotificationSink = notifyWhats
           const updated = await client.query<CancellationRequest>(
             `UPDATE "cancellationRequest" SET status = 'APPROVED', "reviewedBy" = $3, "reviewedAt" = $4, "updatedAt" = $4
              WHERE id = $1 AND "organizationId" = $2
-             RETURNING id, "organizationId", "bookingId", "paymentId", "customerRef", status, reason, "requestedAt", "reviewedAt"`,
+             RETURNING id, "organizationId", "bookingId", "paymentId", "customerRef", source, status, reason, "requestedAt", "reviewedAt"`,
             [id, actor.organizationId, actor.userId, now],
           )
           const actions: Array<[string, string, string, Record<string, unknown>]> = [

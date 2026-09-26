@@ -253,6 +253,21 @@ const app = new Elysia()
         }),
         auth: true,
       })
+      .post('/:id/cancel', async ({ params, body, user, members, status }) => {
+        const actor = ownerActor(user, body.organizationId, members)
+        if (!actor) return status(403)
+        return trips.cancel(actor, params.id, body.pendingPayments)
+      }, {
+        params: t.Object({ id: t.String({ minLength: 1 }) }),
+        body: t.Object({
+          organizationId: t.String({ minLength: 1 }),
+          pendingPayments: t.Array(t.Object({
+            paymentId: t.String({ minLength: 1 }),
+            fundsReceived: t.Boolean(),
+          })),
+        }),
+        auth: true,
+      })
   )
   .group('/payments', (app) =>
     app

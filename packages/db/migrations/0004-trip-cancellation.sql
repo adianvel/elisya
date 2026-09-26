@@ -1,0 +1,5 @@
+ALTER TYPE "TripStatus" ADD VALUE IF NOT EXISTS 'CANCELLED';
+
+CREATE TYPE "CancellationSource" AS ENUM ('CUSTOMER', 'TRIP');
+ALTER TABLE "cancellationRequest"
+  ADD COLUMN IF NOT EXISTS "source" "CancellationSource" NOT NULL DEFAULT 'CUSTOMER';

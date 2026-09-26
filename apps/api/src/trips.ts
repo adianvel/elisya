@@ -1,7 +1,8 @@
 import { pool, zenstack } from '@repo/db'
 import { RESERVED_SEATS_BY_TRIP } from './reserved-seats'
+import { cancelTrip } from './trip-cancellation'
 
-export type TripStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+export type TripStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED' | 'CANCELLED'
 
 export type Trip = {
   id: string
@@ -26,7 +27,9 @@ export type TripInput = {
   seatQuota: number
 }
 
-export type TripPatch = Partial<TripInput> & { status?: TripStatus }
+export type TripPatch = Partial<TripInput> & { status?: Exclude<TripStatus, 'CANCELLED'> }
+
+export type PendingPaymentDecision = { paymentId: string; fundsReceived: boolean }
 
 export type TripActor = {
   userId: string
@@ -37,6 +40,7 @@ export type TripStore = {
   isOwner(userId: string, organizationId: string): Promise<boolean>
   create(input: TripInput & { organizationId: string; currency: string; status: TripStatus }): Promise<Trip>
   update(organizationId: string, id: string, input: TripPatch, now: Date): Promise<Trip | null>
+  cancel(organizationId: string, id: string, actorId: string, decisions: PendingPaymentDecision[], now: Date): Promise<Trip | null>
   findMany(organizationId: string): Promise<Trip[]>
   findAvailable(organizationId: string, now: Date): Promise<AvailableTrip[]>
 }
@@ -66,15 +70,17 @@ const store: TripStore = {
         await client.query('COMMIT')
         return null
       }
+      if (current.rows[0].status === 'CANCELLED') throw new Error('Cancelled Trip cannot be edited')
 
-      if (input.seatQuota !== undefined) {
+      if (input.seatQuota !== undefined || input.status === 'ARCHIVED') {
         const reserved = await client.query<{ seats: number }>(
           `SELECT seats FROM (${RESERVED_SEATS_BY_TRIP}) reserved
            WHERE reserved."organizationId" = $2 AND reserved."tripId" = $3`,
           [now, organizationId, id],
         )
         const reservedSeats = reserved.rows[0]?.seats ?? 0
-        if (input.seatQuota < reservedSeats) throw new Error(`seatQuota cannot be lower than ${reservedSeats} reserved seats`)
+        if (input.seatQuota !== undefined && input.seatQuota < reservedSeats) throw new Error(`seatQuota cannot be lower than ${reservedSeats} reserved seats`)
+        if (input.status === 'ARCHIVED' && reservedSeats > 0) throw new Error('Trip cannot be archived with active Holds or Bookings; use cancellation instead')
       }
 
       const columns = {
@@ -112,6 +118,7 @@ const store: TripStore = {
       client.release()
     }
   },
+  cancel: cancelTrip,
   findMany: async (organizationId) => zenstack.trip.findMany({
     where: { organizationId },
     orderBy: { departureAt: 'asc' },
@@ -165,6 +172,14 @@ export function createTripService(tripStore: TripStore = store) {
       const updated = await tripStore.update(actor.organizationId, id, input, new Date())
       if (!updated) throw new Error('Trip not found')
       return updated
+    },
+
+    async cancel(actor: TripActor, id: string, decisions: PendingPaymentDecision[] = []): Promise<Trip> {
+      await requireOwner(actor, tripStore)
+      if (!id) throw new Error('Trip ID is required')
+      const cancelled = await tripStore.cancel(actor.organizationId, id, actor.userId, decisions, new Date())
+      if (!cancelled) throw new Error('Trip not found')
+      return cancelled
     },
 
     async listAvailable({ organizationId, now = new Date() }: { organizationId: string; now?: Date }): Promise<AvailableTrip[]> {

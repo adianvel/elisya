@@ -1084,6 +1084,12 @@ export class SchemaType implements SchemaDef {
                     name: "idempotencyKey",
                     type: "String"
                 },
+                source: {
+                    name: "source",
+                    type: "CancellationSource",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.literal("CUSTOMER") }] }] as readonly AttributeApplication[],
+                    default: "CUSTOMER" as FieldDefault
+                },
                 status: {
                     name: "status",
                     type: "CancellationRequestStatus",
@@ -1903,7 +1909,8 @@ export class SchemaType implements SchemaDef {
             values: {
                 DRAFT: "DRAFT",
                 PUBLISHED: "PUBLISHED",
-                ARCHIVED: "ARCHIVED"
+                ARCHIVED: "ARCHIVED",
+                CANCELLED: "CANCELLED"
             }
         },
         HoldStatus: {
@@ -1944,6 +1951,13 @@ export class SchemaType implements SchemaDef {
                 PENDING: "PENDING",
                 APPROVED: "APPROVED",
                 REJECTED: "REJECTED"
+            }
+        },
+        CancellationSource: {
+            name: "CancellationSource",
+            values: {
+                CUSTOMER: "CUSTOMER",
+                TRIP: "TRIP"
             }
         },
         RefundStatus: {

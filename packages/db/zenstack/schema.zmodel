@@ -111,6 +111,7 @@ enum TripStatus {
     DRAFT
     PUBLISHED
     ARCHIVED
+    CANCELLED
 }
 
 model Trip {
@@ -257,6 +258,11 @@ enum CancellationRequestStatus {
     REJECTED
 }
 
+enum CancellationSource {
+    CUSTOMER
+    TRIP
+}
+
 model CancellationRequest {
     id             String                   @id
     organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -267,6 +273,7 @@ model CancellationRequest {
     paymentId      String?
     customerRef    String
     idempotencyKey String
+    source         CancellationSource @default(CUSTOMER)
     status         CancellationRequestStatus @default(PENDING)
     reason         String?
     requestedAt    DateTime                 @default(now())
