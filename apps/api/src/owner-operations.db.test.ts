@@ -35,7 +35,7 @@ test.skipIf(process.env.PALAWA_DB_TESTS !== '1')('Owner operations, Vehicles, mo
       `INSERT INTO "organization" (id, name, slug, "createdAt") VALUES ($1, 'Owner ops test', $1, $2), ($3, 'Other owner ops test', $3, $2)`,
       [organizationId, now, otherOrganizationId],
     )
-    await pool.query(`INSERT INTO "user" (id, name, email) VALUES ($1, 'Owner ops test', $2)`, [ownerId, `${suffix}@example.test`])
+    await pool.query(`INSERT INTO "user" (id, name, email, "twoFactorEnabled") VALUES ($1, 'Owner ops test', $2, false)`, [ownerId, `${suffix}@example.test`])
     await pool.query(
       `INSERT INTO "member" (id, "organizationId", "userId", role, "createdAt") VALUES ($1, $2, $3, 'owner', $4)`,
       [`member-${suffix}`, organizationId, ownerId, now],
@@ -45,6 +45,11 @@ test.skipIf(process.env.PALAWA_DB_TESTS !== '1')('Owner operations, Vehicles, mo
        VALUES ($1, $2, 'Other business bus', 'OTHER-' || $3, 'AVAILABLE', $4, $4)`,
       [`vehicle-other-${suffix}`, otherOrganizationId, suffix.slice(0, 6), now],
     )
+    expect(await errorMessage(trips.create(actor, {
+      origin: 'Jakarta', destination: 'Bandung', departureAt: new Date(now.getTime() + 5 * 86_400_000), price: 100_000, seatQuota: 8,
+    }))).toContain('Owner two-factor authentication required')
+    await pool.query(`UPDATE "user" SET "twoFactorEnabled" = true WHERE id = $1`, [ownerId])
+
     const trip = await trips.create(actor, {
       origin: 'Jakarta',
       destination: 'Bandung',

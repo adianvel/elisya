@@ -143,7 +143,7 @@ test.skipIf(process.env.PALAWA_DB_TESTS !== '1')('Owner approval invoices the pr
       [organizationId, now],
     )
     await pool.query(
-      `INSERT INTO "user" (id, name, email) VALUES ($1, 'Price test Owner', $2)`,
+      `INSERT INTO "user" (id, name, email, "twoFactorEnabled") VALUES ($1, 'Price test Owner', $2, true)`,
       [ownerId, `${suffix}@example.test`],
     )
     await pool.query(

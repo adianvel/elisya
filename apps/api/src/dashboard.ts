@@ -1,4 +1,5 @@
-import { pool, zenstack } from '@repo/db'
+import { pool } from '@repo/db'
+import { isAuthorizedOwner } from './authz'
 import type { CancellationRequest, Refund } from './cancellations'
 import type { PaymentStatus } from './payments'
 import { RESERVED_SEATS_BY_TRIP } from './reserved-seats'
@@ -45,10 +46,7 @@ export type DashboardStore = {
 }
 
 const store: DashboardStore = {
-  isOwner: async (userId, organizationId) => Boolean(await zenstack.member.findFirst({
-    where: { userId, organizationId, role: 'owner' },
-    select: { id: true },
-  })),
+  isOwner: isAuthorizedOwner,
 
   async operations(organizationId, now) {
     const [trips, activeHolds, confirmedBookings, pendingPaymentReviews, cancellationCases, vehicles] = await Promise.all([

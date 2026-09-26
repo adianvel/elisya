@@ -19,12 +19,7 @@ export const notifyWeb = task({
   retryBackoff: true,
 
   async run(payload, context) {
-    console.log({
-      task: 'notify.web',
-      jobId: context.job.id,
-      userId: payload.userId,
-      title: payload.title,
-    })
+    console.log({ task: 'notify.web', jobId: context.job.id })
 
     await zenstack.notification.create({
       data: {

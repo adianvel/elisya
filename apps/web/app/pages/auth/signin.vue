@@ -7,6 +7,7 @@ definePageMeta({
 })
 
 const signInEmail = useSignIn('email')
+const { user, fetchSession } = useUserSession()
 
 const route = useRoute()
 const toast = useToast()
@@ -44,7 +45,9 @@ type Schema = z.output<typeof schema>
 async function onSubmit(payload: FormSubmitEvent<Schema>) {
   try {
     await signInEmail.execute(payload.data, {
-      onSuccess: () => {
+      onSuccess: async () => {
+        await fetchSession({ force: true })
+        if (!user.value) return
         toast.add({
           description: `Welcome back, ${payload.data.email}!`
         })

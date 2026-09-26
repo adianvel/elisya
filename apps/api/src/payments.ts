@@ -1,5 +1,6 @@
-import { persistWhatsAppNotification, pool, zenstack } from '@repo/db'
+import { persistWhatsAppNotification, pool } from '@repo/db'
 import { ulid } from 'ulid'
+import { isAuthorizedOwner } from './authz'
 import { materializeBooking } from './bookings'
 import { notifyWhatsApp } from './notifications'
 import type { NotificationSink } from './holds'
@@ -54,10 +55,7 @@ function validate(input: SubmitPaymentInput): void {
 }
 
 const store: PaymentStore = {
-  isOwner: async (userId, organizationId) => Boolean(await zenstack.member.findFirst({
-    where: { userId, organizationId, role: 'owner' },
-    select: { id: true },
-  })),
+  isOwner: isAuthorizedOwner,
 
   async submit(input) {
     const now = input.now ?? new Date()

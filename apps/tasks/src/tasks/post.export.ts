@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { zenstack } from '@repo/db'
+import { getOwnerAuthorization, zenstack } from '@repo/db'
 import * as storage from '@repo/storage'
 import { task } from '../registry'
 
@@ -8,7 +8,7 @@ export const postExport = task({
 
   payload: z.object({
     userId: z.string().min(1),
-    organizationId: z.string().optional(),
+    organizationId: z.string().min(1),
   }),
 
   retryLimit: 3,
@@ -17,8 +17,11 @@ export const postExport = task({
 
   async run(payload, context) {
     try {
+      if (await getOwnerAuthorization(payload.userId, payload.organizationId) !== 'authorized') {
+        throw new Error('Owner authorization required')
+      }
       const posts = await zenstack.post.findMany({
-        where: payload.organizationId ? { organizationId: payload.organizationId } : {},
+        where: { organizationId: payload.organizationId },
         orderBy: { createdAt: 'desc' },
       })
 
@@ -41,20 +44,17 @@ export const postExport = task({
         url: `/storage/objects/${key}`,
       })
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unexpected error.'
-
       console.error({
         task: 'post.export',
         jobId: context.job.id,
-        userId: payload.userId,
-        err: error,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
       })
 
       try {
         await context.send('notify.web', {
           userId: payload.userId,
           title: 'Post export failed',
-          body: message,
+          body: 'The export could not be completed. Please try again later.',
           icon: 'i-lucide-alert-triangle',
           color: 'error',
         })
@@ -62,8 +62,8 @@ export const postExport = task({
         console.error({
           task: 'post.export',
           jobId: context.job.id,
-          message: 'failed to enqueue failure notification',
-          err: sendError,
+          errorName: sendError instanceof Error ? sendError.name : 'UnknownError',
+          phase: 'failure notification enqueue',
         })
       }
     }

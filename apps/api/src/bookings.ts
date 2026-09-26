@@ -1,5 +1,6 @@
-import { pool, zenstack } from '@repo/db'
+import { pool } from '@repo/db'
 import { ulid } from 'ulid'
+import { requireOwner } from './authz'
 
 export type BookingStatus = 'CONFIRMED' | 'PAYMENT_REJECTED' | 'CANCELLED'
 
@@ -139,8 +140,7 @@ export function createBookingService() {
     },
 
     async listOwner(actor: BookingActor): Promise<Booking[]> {
-      const owner = await zenstack.member.findFirst({ where: { userId: actor.userId, organizationId: actor.organizationId, role: 'owner' }, select: { id: true } })
-      if (!owner) throw new Error('Owner access required')
+      await requireOwner(actor)
       const result = await pool.query<Booking & { invoiceId?: string; invoiceAmount?: number; invoiceCurrency?: string; invoiceStatus?: 'ISSUED'; invoiceIssuedAt?: Date }>(
         `${SELECT_BOOKING} WHERE b."organizationId" = $1 AND b.status = 'CONFIRMED' ORDER BY b."createdAt" DESC`,
         [actor.organizationId],

@@ -1,5 +1,6 @@
-import { pool, zenstack } from '@repo/db'
+import { pool } from '@repo/db'
 import { ulid } from 'ulid'
+import { requireOwner } from './authz'
 import { writeAuditEvent } from './audit'
 
 export type VehicleStatus = 'AVAILABLE' | 'ASSIGNED' | 'MAINTENANCE'
@@ -25,13 +26,6 @@ async function hasUpcomingTrip(client: Queryable, organizationId: string, vehicl
     [organizationId, vehicleId, now],
   )
   return result.rows[0]?.assigned ?? false
-}
-
-async function requireOwner(actor: VehicleActor): Promise<void> {
-  if (!await zenstack.member.findFirst({
-    where: { userId: actor.userId, organizationId: actor.organizationId, role: 'owner' },
-    select: { id: true },
-  })) throw new Error('Owner access required')
 }
 
 export async function syncVehicleAssignmentStatus(

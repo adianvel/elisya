@@ -21,7 +21,7 @@ test.skipIf(process.env.PALAWA_DB_TESTS !== '1')('a Customer cancellation is rep
       `INSERT INTO "organization" (id, name, slug, "createdAt") VALUES ($1, 'Cancellation test', $1, $2)`,
       [organizationId, now],
     )
-    await pool.query(`INSERT INTO "user" (id, name, email) VALUES ($1, 'Cancellation owner', $2)`, [ownerId, `${suffix}@example.test`])
+    await pool.query(`INSERT INTO "user" (id, name, email, "twoFactorEnabled") VALUES ($1, 'Cancellation owner', $2, true)`, [ownerId, `${suffix}@example.test`])
     await pool.query(
       `INSERT INTO "member" (id, "organizationId", "userId", role, "createdAt") VALUES ($1, $2, $3, 'owner', $4)`,
       [`member-${suffix}`, organizationId, ownerId, now],
@@ -191,7 +191,7 @@ test.skipIf(process.env.PALAWA_DB_TESTS !== '1')('a pending Payment cancellation
       `INSERT INTO "organization" (id, name, slug, "createdAt") VALUES ($1, 'Pending cancellation test', $1, $2)`,
       [organizationId, now],
     )
-    await pool.query(`INSERT INTO "user" (id, name, email) VALUES ($1, 'Pending cancellation owner', $2)`, [ownerId, `${suffix}@example.test`])
+    await pool.query(`INSERT INTO "user" (id, name, email, "twoFactorEnabled") VALUES ($1, 'Pending cancellation owner', $2, true)`, [ownerId, `${suffix}@example.test`])
     await pool.query(
       `INSERT INTO "member" (id, "organizationId", "userId", role, "createdAt") VALUES ($1, $2, $3, 'owner', $4)`,
       [`member-${suffix}`, organizationId, ownerId, now],

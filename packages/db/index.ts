@@ -26,3 +26,16 @@ const dialect = new PostgresDialect({
 export const zenstack = new ZenStackClient(schema, { dialect });
 
 export const db = zenstack.$use(new PolicyPlugin());
+
+export type OwnerAuthorization = 'not-owner' | 'two-factor-required' | 'authorized'
+
+export async function getOwnerAuthorization(userId: string, organizationId: string): Promise<OwnerAuthorization> {
+  const result = await pool.query<{ twoFactorEnabled: boolean | null }>(
+    `SELECT u."twoFactorEnabled"
+     FROM "member" m JOIN "user" u ON u.id = m."userId"
+     WHERE m."userId" = $1 AND m."organizationId" = $2 AND m.role = 'owner'`,
+    [userId, organizationId],
+  )
+  if (!result.rows[0]) return 'not-owner'
+  return result.rows[0].twoFactorEnabled === true ? 'authorized' : 'two-factor-required'
+}

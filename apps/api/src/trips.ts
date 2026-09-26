@@ -1,5 +1,6 @@
 import { pool, zenstack } from '@repo/db'
 import { ulid } from 'ulid'
+import { isAuthorizedOwner } from './authz'
 import { writeAuditEvent } from './audit'
 import { RESERVED_SEATS_BY_TRIP } from './reserved-seats'
 import { cancelTrip } from './trip-cancellation'
@@ -56,10 +57,7 @@ export function configuredOrganizationId(): string {
 }
 
 const store: TripStore = {
-  isOwner: async (userId, organizationId) => Boolean(await zenstack.member.findFirst({
-    where: { userId, organizationId, role: 'owner' },
-    select: { id: true },
-  })),
+  isOwner: isAuthorizedOwner,
   async create(actorId, input) {
     const now = new Date()
     const client = await pool.connect()

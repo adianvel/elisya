@@ -4,6 +4,7 @@ import { cors } from "@elysiajs/cors";
 import { RPCApiHandler } from '@zenstackhq/server/api';
 import { createElysiaHandler } from '@zenstackhq/server/elysia';
 import { db, zenstack, schema } from '@repo/db';
+import { requireOwner } from './authz';
 import { LogModule } from '@repo/db/enums';
 import { logger, readLogs } from '@repo/logger';
 import * as storage from '@repo/storage';
@@ -14,12 +15,41 @@ import { bookings } from './bookings';
 import { cancellations, refunds } from './cancellations';
 import { dashboard } from './dashboard';
 import { vehicles } from './vehicles';
+import { createRateLimiter } from './rate-limit';
+import { isUserStorageKey, userStoragePrefix } from './storage-auth';
 import { handleWhatsAppInbound, isN8nWebhookAuthorized, mapWhatsAppInbound, WhatsAppSenderError } from './integrations';
 import { handleWhatsAppMedia, mapWhatsAppMediaInbound, MAX_PAYMENT_PROOF_BYTES, WhatsAppMediaInputError, WhatsAppMediaProcessingError } from './whatsapp-media';
 import { enqueueTask, stopTasks } from "./lib/tasks";
 
 const PAYMENT_PROOF_PREFIX = 'payment-proofs/';
 const isPaymentProofKey = (key: string) => key.startsWith(PAYMENT_PROOF_PREFIX);
+const publicRateLimit = createRateLimiter();
+
+function safeRequestPath(pathname: string): string {
+  if (pathname.startsWith('/storage/')) return '/storage/:operation'
+  return pathname.replace(/\/(payments|trips|bookings|cancellations|refunds|vehicles)\/[^/]+/g, '/$1/:id')
+}
+
+const PublicRequestLimit = new Elysia({ name: 'public-request-limit' })
+  .onRequest(({ request, server }) => {
+    const path = new URL(request.url).pathname.replace(/\/$/, '') || '/';
+    const key = `${request.method} ${path}`;
+    const limit = key === 'GET /trips'
+      ? 120
+      : key === 'POST /integrations/n8n/whatsapp/media'
+        ? 20
+        : ['POST /integrations/n8n/whatsapp', 'POST /chat/whatsapp'].includes(key)
+          ? 60
+          : 0;
+    if (!limit) return;
+    const ip = server?.requestIP(request)?.address ?? 'unknown';
+    if (publicRateLimit(`${key}:${ip}`, limit, 60_000)) {
+      return new Response(JSON.stringify({ error: 'Too many requests' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  })
 
 const AuthService = new Elysia({ name: "better-auth" })
   .mount(auth.handler);
@@ -52,27 +82,26 @@ const AccessLog = new Elysia({ name: "access-log" })
   .derive(({ request }) => ({
     requestStart: performance.now(),
   }))
-  .onAfterHandle(({ request, set, requestStart, server }) => {
+  .onAfterHandle(({ request, set, requestStart }) => {
     logger.access.info({
       method: request.method,
-      path: new URL(request.url).pathname,
+      path: safeRequestPath(new URL(request.url).pathname),
       status: set.status,
       durationMs: Math.round(performance.now() - requestStart!),
-      ip: server?.requestIP(request)?.address,
     }, 'request handled')
   })
-  .onError(({ request, set, requestStart, server, error }) => {
+  .onError(({ request, set, requestStart, error }) => {
     logger.access.error({
       method: request.method,
-      path: new URL(request.url).pathname,
+      path: safeRequestPath(new URL(request.url).pathname),
       status: set.status,
       durationMs: Math.round(performance.now() - requestStart!),
-      ip: server?.requestIP(request)?.address,
-      err: error,
+      errorName: error instanceof Error ? error.name : 'UnknownError',
     }, 'request failed')
   })
 
-function ownerActor(user: { id: string }, organizationId: string, members: Array<{ organizationId: string; role: string }>) {
+function ownerActor(user: { id: string; twoFactorEnabled?: boolean | null }, organizationId: string, members: Array<{ organizationId: string; role: string }>) {
+  if (user.twoFactorEnabled !== true) return null
   const member = members.find((item) => item.organizationId === organizationId)
   if (!member || member.role !== 'owner') return null
   return { userId: user.id, organizationId }
@@ -87,13 +116,14 @@ const app = new Elysia()
       allowedHeaders: ["Content-Type", "Authorization"],
     }),
   )
+  .use(PublicRequestLimit)
   .use(AccessLog)
   .use(AuthService)
   .use(AuthMacro)
-  .get('/logs', ({ query }) => readLogs({
-    ...query,
-    levels: query.levels?.map(Number),
-  }), {
+  .get('/logs', ({ query, user, status }) => {
+    if (user.role !== 'admin') return status(403)
+    return readLogs({ ...query, levels: query.levels?.map(Number) })
+  }, {
     query: t.Object({
       module: t.Union(LogModule.map((module) => t.Literal(module.value))),
       date: t.Optional(t.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' })),
@@ -112,7 +142,7 @@ const app = new Elysia()
             headers: headers as HeadersInit
           });
 
-          if (!session) return db
+          if (!session) return db.$setAuth({ id: '', members: [] } as any)
 
           const members = await zenstack.member.findMany({
             where: { userId: session.session.userId },
@@ -129,8 +159,8 @@ const app = new Elysia()
   )
   .group('/storage', (app) =>
     app
-      .post('/presign', ({ body, status }) => {
-        if (isPaymentProofKey(body.key)) return status(404)
+      .post('/presign', ({ body, user, status }) => {
+        if (isPaymentProofKey(body.key) || !isUserStorageKey(body.key, user.id)) return status(404)
         return { key: body.key, url: storage.presign(body.key, body) }
       }, {
         body: t.Object({
@@ -146,7 +176,7 @@ const app = new Elysia()
         auth: true,
       })
       .post('/upload', ({ body, user, status }) => {
-        if (body.key && isPaymentProofKey(body.key)) return status(404)
+        if (body.key && (isPaymentProofKey(body.key) || !isUserStorageKey(body.key, user.id))) return status(404)
         return storage.upload({ scope: user.id, key: body.key, file: body.file })
       }, {
         body: t.Object({
@@ -155,22 +185,24 @@ const app = new Elysia()
         }),
         auth: true,
       })
-      .get('/objects/*', async ({ params, status }) => {
-        if (isPaymentProofKey(params['*'])) return status(404)
+      .get('/objects/*', async ({ params, user, status }) => {
+        if (isPaymentProofKey(params['*']) || !isUserStorageKey(params['*'], user.id)) return status(404)
         const s3file = await storage.download(params['*']);
         return s3file ? new Response(s3file) : { error: 'Not found' };
       }, {
         auth: true,
       })
-      .delete('/objects/*', async ({ params, status }) => isPaymentProofKey(params['*']) ? status(404) : storage.removeObject(params['*']), {
+      .delete('/objects/*', async ({ params, user, status }) => isPaymentProofKey(params['*']) || !isUserStorageKey(params['*'], user.id) ? status(404) : storage.removeObject(params['*']), {
         auth: true,
       })
-      .get('/stat/*', async ({ params, status }) => isPaymentProofKey(params['*']) ? status(404) : storage.statObject(params['*']), {
+      .get('/stat/*', async ({ params, user, status }) => isPaymentProofKey(params['*']) || !isUserStorageKey(params['*'], user.id) ? status(404) : storage.statObject(params['*']), {
         auth: true,
       })
-      .get('/list', async ({ query }) => {
-        const result = await storage.listObjects(query)
-        return { ...result, contents: result.contents.filter((object) => !isPaymentProofKey(object.key)) }
+      .get('/list', async ({ query, user, status }) => {
+        const prefix = userStoragePrefix(query.prefix, user.id)
+        if (!prefix) return status(404)
+        const result = await storage.listObjects({ ...query, prefix })
+        return { ...result, contents: result.contents.filter((object) => isUserStorageKey(object.key, user.id) && !isPaymentProofKey(object.key)) }
       }, {
         query: t.Object({
           prefix: t.Optional(t.String({ maxLength: 1024 })),
@@ -181,12 +213,14 @@ const app = new Elysia()
   )
   .group('/tasks', (app) =>
     app
-      .post('/posts/export', ({ body, user }) => enqueueTask('post.export', {
-        userId: user.id,
-        organizationId: body.organizationId,
-      }), {
+      .post('/posts/export', async ({ body, user, members, status }) => {
+        const actor = ownerActor(user, body.organizationId, members)
+        if (!actor) return status(403)
+        await requireOwner(actor)
+        return enqueueTask('post.export', { userId: user.id, organizationId: actor.organizationId })
+      }, {
         body: t.Object({
-          organizationId: t.Optional(t.String()),
+          organizationId: t.String({ minLength: 1 }),
         }),
         auth: true,
       })
