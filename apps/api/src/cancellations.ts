@@ -1,5 +1,6 @@
 import { persistWhatsAppNotification, pool, zenstack } from '@repo/db'
 import { ulid } from 'ulid'
+import { writeAuditEvent } from './audit'
 import { notifyWhatsApp } from './notifications'
 import type { NotificationSink } from './holds'
 
@@ -62,23 +63,6 @@ async function requireOwner(actor: CancellationActor): Promise<void> {
   if (!await zenstack.member.findFirst({ where: { userId: actor.userId, organizationId: actor.organizationId, role: 'owner' }, select: { id: true } })) {
     throw new Error('Owner access required')
   }
-}
-
-async function writeAuditEvent(
-  client: { query(text: string, values?: unknown[]): Promise<unknown> },
-  organizationId: string,
-  actorId: string | null,
-  action: string,
-  entityType: string,
-  entityId: string,
-  metadata: Record<string, unknown>,
-  createdAt: Date,
-): Promise<void> {
-  await client.query(
-    `INSERT INTO "auditEvent" (id, "organizationId", "actorId", action, "entityType", "entityId", metadata, "createdAt")
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [ulid(), organizationId, actorId, action, entityType, entityId, JSON.stringify(metadata), createdAt],
-  )
 }
 
 async function findRefundForCancellation(client: { query<T>(text: string, values?: unknown[]): Promise<{ rows: T[] }> }, cancellation: CancellationRequest): Promise<Refund | null> {

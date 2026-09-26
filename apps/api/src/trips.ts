@@ -1,6 +1,9 @@
 import { pool, zenstack } from '@repo/db'
+import { ulid } from 'ulid'
+import { writeAuditEvent } from './audit'
 import { RESERVED_SEATS_BY_TRIP } from './reserved-seats'
 import { cancelTrip } from './trip-cancellation'
+import { syncVehicleAssignmentStatus } from './vehicles'
 
 export type TripStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED' | 'CANCELLED'
 
@@ -14,6 +17,7 @@ export type Trip = {
   currency: string
   seatQuota: number
   status: TripStatus
+  vehicleId: string | null
 }
 
 export type AvailableTrip = Trip & { remainingSeats: number }
@@ -27,7 +31,7 @@ export type TripInput = {
   seatQuota: number
 }
 
-export type TripPatch = Partial<TripInput> & { status?: Exclude<TripStatus, 'CANCELLED'> }
+export type TripPatch = Partial<TripInput> & { status?: Exclude<TripStatus, 'CANCELLED'>; vehicleId?: string | null }
 
 export type PendingPaymentDecision = { paymentId: string; fundsReceived: boolean }
 
@@ -38,8 +42,8 @@ export type TripActor = {
 
 export type TripStore = {
   isOwner(userId: string, organizationId: string): Promise<boolean>
-  create(input: TripInput & { organizationId: string; currency: string; status: TripStatus }): Promise<Trip>
-  update(organizationId: string, id: string, input: TripPatch, now: Date): Promise<Trip | null>
+  create(actorId: string, input: TripInput & { organizationId: string; currency: string; status: TripStatus }): Promise<Trip>
+  update(organizationId: string, id: string, input: TripPatch, actorId: string, now: Date): Promise<Trip | null>
   cancel(organizationId: string, id: string, actorId: string, decisions: PendingPaymentDecision[], now: Date): Promise<Trip | null>
   findMany(organizationId: string): Promise<Trip[]>
   findAvailable(organizationId: string, now: Date): Promise<AvailableTrip[]>
@@ -56,8 +60,32 @@ const store: TripStore = {
     where: { userId, organizationId, role: 'owner' },
     select: { id: true },
   })),
-  create: async (input) => zenstack.trip.create({ data: input }) as Promise<Trip>,
-  async update(organizationId, id, input, now) {
+  async create(actorId, input) {
+    const now = new Date()
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const created = await client.query<Trip>(
+        `INSERT INTO "trip" (id, "organizationId", origin, destination, "departureAt", price, currency, "seatQuota", status, "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+         RETURNING id, "organizationId", origin, destination, "departureAt", price, currency, "seatQuota", status, "vehicleId"`,
+        [ulid(), input.organizationId, input.origin, input.destination, input.departureAt, input.price, input.currency, input.seatQuota, input.status, now],
+      )
+      const trip = created.rows[0]!
+      await writeAuditEvent(client, input.organizationId, actorId, 'trip.created', 'Trip', trip.id, {
+        origin: trip.origin,
+        destination: trip.destination,
+      }, now)
+      await client.query('COMMIT')
+      return trip
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  },
+  async update(organizationId, id, input, actorId, now) {
     const client = await pool.connect()
     try {
       await client.query('BEGIN')
@@ -71,6 +99,38 @@ const store: TripStore = {
         return null
       }
       if (current.rows[0].status === 'CANCELLED') throw new Error('Cancelled Trip cannot be edited')
+
+      const nextStatus = input.status ?? current.rows[0].status
+      const assignmentChanged = input.vehicleId !== undefined && input.vehicleId !== current.rows[0].vehicleId
+      const wasOperational = (current.rows[0].status === 'DRAFT' || current.rows[0].status === 'PUBLISHED') && current.rows[0].departureAt > now
+      const isOperational = (nextStatus === 'DRAFT' || nextStatus === 'PUBLISHED') && (input.departureAt ?? current.rows[0].departureAt) > now
+      const assignmentAffectsVehicle = assignmentChanged || wasOperational !== isOperational
+      if (input.vehicleId && nextStatus === 'ARCHIVED') throw new Error('Archived Trips cannot be assigned a Vehicle')
+      const affectedVehicleIds = [...new Set([current.rows[0].vehicleId, input.vehicleId ?? null].filter((vehicleId): vehicleId is string => Boolean(vehicleId)))]
+      if (assignmentAffectsVehicle && affectedVehicleIds.length) {
+        const lockedVehicles = await client.query<{ id: string; status: string }>(
+          `SELECT id, status FROM "vehicle" WHERE "organizationId" = $1 AND id = ANY($2::text[]) ORDER BY id FOR UPDATE`,
+          [organizationId, affectedVehicleIds],
+        )
+        if (current.rows[0].vehicleId && !lockedVehicles.rows.some((vehicle) => vehicle.id === current.rows[0]!.vehicleId)) {
+          throw new Error('Trip Vehicle not found for this Travel business')
+        }
+        if (input.vehicleId && !lockedVehicles.rows.some((vehicle) => vehicle.id === input.vehicleId)) {
+          throw new Error('Vehicle not found for this Travel business')
+        }
+        const assignedVehicle = input.vehicleId
+          ? lockedVehicles.rows.find((vehicle) => vehicle.id === input.vehicleId)
+          : undefined
+        if (input.vehicleId && isOperational && assignedVehicle?.status === 'MAINTENANCE') {
+          throw new Error('Vehicle in maintenance cannot be assigned to a Trip')
+        }
+        const existingVehicle = current.rows[0].vehicleId
+          ? lockedVehicles.rows.find((vehicle) => vehicle.id === current.rows[0]!.vehicleId)
+          : undefined
+        if (!input.vehicleId && isOperational && !wasOperational && existingVehicle?.status === 'MAINTENANCE') {
+          throw new Error('Vehicle in maintenance cannot be assigned to a Trip')
+        }
+      }
 
       if (input.seatQuota !== undefined || input.status === 'ARCHIVED') {
         const reserved = await client.query<{ seats: number }>(
@@ -91,6 +151,7 @@ const store: TripStore = {
         currency: 'currency',
         seatQuota: 'seatQuota',
         status: 'status',
+        vehicleId: 'vehicleId',
       } as const
       const fields = Object.keys(columns).filter((key) => input[key as keyof TripPatch] !== undefined) as Array<keyof typeof columns>
       if (!fields.length) {
@@ -109,6 +170,12 @@ const store: TripStore = {
          RETURNING id, "organizationId", origin, destination, "departureAt", price, currency, "seatQuota", status, "vehicleId", "createdAt", "updatedAt"`,
         values,
       )
+      if (assignmentAffectsVehicle) {
+        for (const vehicleId of affectedVehicleIds) {
+          await syncVehicleAssignmentStatus(client, organizationId, vehicleId, actorId, now)
+        }
+      }
+      await writeAuditEvent(client, organizationId, actorId, 'trip.updated', 'Trip', id, { changedFields: fields }, now)
       await client.query('COMMIT')
       return updated.rows[0] ?? null
     } catch (error) {
@@ -156,7 +223,7 @@ export function createTripService(tripStore: TripStore = store) {
     async create(actor: TripActor, input: TripInput): Promise<Trip> {
       await requireOwner(actor, tripStore)
       validateTrip(input)
-      return tripStore.create({
+      return tripStore.create(actor.userId, {
         ...input,
         organizationId: actor.organizationId,
         currency: input.currency ?? 'IDR',
@@ -169,7 +236,7 @@ export function createTripService(tripStore: TripStore = store) {
       const current = (await tripStore.findMany(actor.organizationId)).find((trip) => trip.id === id)
       if (!current) throw new Error('Trip not found')
       validateTrip({ ...current, ...input })
-      const updated = await tripStore.update(actor.organizationId, id, input, new Date())
+      const updated = await tripStore.update(actor.organizationId, id, input, actor.userId, new Date())
       if (!updated) throw new Error('Trip not found')
       return updated
     },

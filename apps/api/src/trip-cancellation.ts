@@ -1,7 +1,9 @@
 import { persistWhatsAppNotification, pool } from '@repo/db'
 import { ulid } from 'ulid'
+import { writeAuditEvent } from './audit'
 import type { Refund } from './cancellations'
 import type { PendingPaymentDecision, Trip } from './trips'
+import { syncVehicleAssignmentStatus } from './vehicles'
 
 type Queryable = { query<T>(text: string, values?: unknown[]): Promise<{ rows: T[] }> }
 type Hold = { id: string; customerRef: string; status: string }
@@ -20,23 +22,6 @@ type ConfirmedBooking = {
   customerRef: string
   amount: number
   currency: string
-}
-
-async function audit(
-  client: Queryable,
-  organizationId: string,
-  actorId: string,
-  action: string,
-  entityType: string,
-  entityId: string,
-  metadata: Record<string, unknown>,
-  now: Date,
-): Promise<void> {
-  await client.query(
-    `INSERT INTO "auditEvent" (id, "organizationId", "actorId", action, "entityType", "entityId", metadata, "createdAt")
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [ulid(), organizationId, actorId, action, entityType, entityId, JSON.stringify(metadata), now],
-  )
 }
 
 async function recordCancellationCase(
@@ -73,7 +58,7 @@ async function recordCancellationCase(
       [id, organizationId, bookingId, paymentId, customerRef, `trip:${tripId}:${bookingId ? 'booking' : 'payment'}:${targetId}`, now, actorId],
     )
   }
-  await audit(client, organizationId, actorId, pending.rows[0] ? 'cancellation.approved' : 'cancellation.trip_created', 'CancellationRequest', id, {
+  await writeAuditEvent(client, organizationId, actorId, pending.rows[0] ? 'cancellation.approved' : 'cancellation.trip_created', 'CancellationRequest', id, {
     tripId,
     bookingId,
     paymentId,
@@ -118,7 +103,7 @@ export async function cancelTrip(
   try {
     await client.query('BEGIN')
     const current = await client.query<Trip>(
-      `SELECT id, "organizationId", origin, destination, "departureAt", price, currency, "seatQuota", status
+      `SELECT id, "organizationId", origin, destination, "departureAt", price, currency, "seatQuota", status, "vehicleId"
        FROM "trip" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
       [id, organizationId],
     )
@@ -194,8 +179,8 @@ export async function cancelTrip(
           currency: payment.currency,
           now,
         })
-        await audit(client, organizationId, actorId, 'payment.refund_pending', 'Payment', payment.id, { refundId: refund.id }, now)
-        await audit(client, organizationId, actorId, 'refund.created', 'Refund', refund.id, { paymentId: payment.id, amount: refund.amount, currency: refund.currency }, now)
+        await writeAuditEvent(client, organizationId, actorId, 'payment.refund_pending', 'Payment', payment.id, { refundId: refund.id }, now)
+        await writeAuditEvent(client, organizationId, actorId, 'refund.created', 'Refund', refund.id, { paymentId: payment.id, amount: refund.amount, currency: refund.currency }, now)
         await persistWhatsAppNotification(client, {
           organizationId,
           eventKey: `trip:${id}:payment:${payment.id}:cancelled`,
@@ -209,7 +194,7 @@ export async function cancelTrip(
            WHERE id = $1 AND "organizationId" = $2`,
           [payment.id, organizationId, reason, actorId, now],
         )
-        await audit(client, organizationId, actorId, 'payment.rejected', 'Payment', payment.id, { reason }, now)
+        await writeAuditEvent(client, organizationId, actorId, 'payment.rejected', 'Payment', payment.id, { reason }, now)
         await persistWhatsAppNotification(client, {
           organizationId,
           eventKey: `trip:${id}:payment:${payment.id}:cancelled`,
@@ -217,7 +202,7 @@ export async function cancelTrip(
           text: `Trip ${trip.origin} to ${trip.destination} was cancelled. The Owner confirmed no transfer was received; Payment ${payment.id} was rejected and the Hold seats were released.`,
         }, now)
       }
-      await audit(client, organizationId, actorId, 'hold.cancelled', 'Hold', payment.holdId, { customerRef: payment.customerRef, tripId: id }, now)
+      await writeAuditEvent(client, organizationId, actorId, 'hold.cancelled', 'Hold', payment.holdId, { customerRef: payment.customerRef, tripId: id }, now)
       await recordCancellationCase(client, organizationId, actorId, id, { paymentId: payment.id }, payment.customerRef, now)
     }
 
@@ -238,9 +223,9 @@ export async function cancelTrip(
         currency: booking.currency,
         now,
       })
-      await audit(client, organizationId, actorId, 'booking.cancelled', 'Booking', booking.id, { refundId: refund.id, tripId: id }, now)
-      await audit(client, organizationId, actorId, 'refund.created', 'Refund', refund.id, { bookingId: booking.id, amount: refund.amount, currency: refund.currency }, now)
-      await audit(client, organizationId, actorId, 'hold.cancelled', 'Hold', booking.holdId, { customerRef: booking.customerRef, tripId: id }, now)
+      await writeAuditEvent(client, organizationId, actorId, 'booking.cancelled', 'Booking', booking.id, { refundId: refund.id, tripId: id }, now)
+      await writeAuditEvent(client, organizationId, actorId, 'refund.created', 'Refund', refund.id, { bookingId: booking.id, amount: refund.amount, currency: refund.currency }, now)
+      await writeAuditEvent(client, organizationId, actorId, 'hold.cancelled', 'Hold', booking.holdId, { customerRef: booking.customerRef, tripId: id }, now)
       await recordCancellationCase(client, organizationId, actorId, id, { bookingId: booking.id }, booking.customerRef, now)
       await persistWhatsAppNotification(client, {
         organizationId,
@@ -257,7 +242,7 @@ export async function cancelTrip(
       [organizationId, id, now],
     )
     for (const hold of unpaidHolds.rows) {
-      await audit(client, organizationId, actorId, 'hold.cancelled', 'Hold', hold.id, { customerRef: hold.customerRef, tripId: id }, now)
+      await writeAuditEvent(client, organizationId, actorId, 'hold.cancelled', 'Hold', hold.id, { customerRef: hold.customerRef, tripId: id }, now)
       await persistWhatsAppNotification(client, {
         organizationId,
         eventKey: `trip:${id}:hold:${hold.id}:cancelled`,
@@ -274,7 +259,8 @@ export async function cancelTrip(
     )
     const cancelled = updated.rows[0]
     if (!cancelled) throw new Error('Trip cancellation failed')
-    await audit(client, organizationId, actorId, 'trip.cancelled', 'Trip', id, {
+    if (trip.vehicleId) await syncVehicleAssignmentStatus(client, organizationId, trip.vehicleId, actorId, now)
+    await writeAuditEvent(client, organizationId, actorId, 'trip.cancelled', 'Trip', id, {
       closedHolds: unpaidHolds.rows.length + pendingPayments.rows.length + bookings.rows.length,
       refundedPayments: pendingPayments.rows.filter((payment) => decisionByPayment.get(payment.id)).length,
       cancelledBookings: bookings.rows.length,
