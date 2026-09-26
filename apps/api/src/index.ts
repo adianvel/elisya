@@ -11,6 +11,7 @@ import { chat } from './chat';
 import { configuredOrganizationId, trips } from './trips';
 import { payments } from './payments';
 import { bookings } from './bookings';
+import { cancellations, refunds } from './cancellations';
 import { dashboard } from './dashboard';
 import { handleWhatsAppInbound, isN8nWebhookAuthorized, mapWhatsAppInbound, WhatsAppSenderError } from './integrations';
 import { handleWhatsAppMedia, mapWhatsAppMediaInbound, MAX_PAYMENT_PROOF_BYTES, WhatsAppMediaInputError, WhatsAppMediaProcessingError } from './whatsapp-media';
@@ -296,6 +297,60 @@ const app = new Elysia()
         return bookings.listOwner(actor)
       }, {
         query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+        auth: true,
+      })
+  )
+  .group('/cancellations', (app) =>
+    app
+      .get('/manage', async ({ query, user, members, status }) => {
+        const actor = ownerActor(user, query.organizationId, members)
+        if (!actor) return status(403)
+        return cancellations.listPending(actor)
+      }, {
+        query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+        auth: true,
+      })
+      .patch('/:id/review', async ({ params, body, query, user, members, status }) => {
+        const actor = ownerActor(user, query.organizationId, members)
+        if (!actor) return status(403)
+        const review = body.decision === 'REJECT'
+          ? { decision: 'REJECT' as const, reason: body.reason }
+          : { decision: 'APPROVE' as const, ...(body.fundsReceived === undefined ? {} : { fundsReceived: body.fundsReceived }) }
+        return cancellations.review(actor, params.id, review)
+      }, {
+        params: t.Object({ id: t.String({ minLength: 1 }) }),
+        query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+        body: t.Union([
+          t.Object({ decision: t.Literal('REJECT'), reason: t.String({ minLength: 1, maxLength: 1000 }) }),
+          t.Object({ decision: t.Literal('APPROVE'), fundsReceived: t.Optional(t.Boolean()) }),
+        ]),
+        auth: true,
+      })
+  )
+  .group('/refunds', (app) =>
+    app
+      .get('/manage', async ({ query, user, members, status }) => {
+        const actor = ownerActor(user, query.organizationId, members)
+        if (!actor) return status(403)
+        return refunds.listOwner(actor)
+      }, {
+        query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+        auth: true,
+      })
+      .patch('/:id/complete', async ({ params, body, query, user, members, status }) => {
+        const actor = ownerActor(user, query.organizationId, members)
+        if (!actor) return status(403)
+        return refunds.complete(actor, params.id, {
+          transferDate: new Date(body.transferDate),
+          transferReference: body.transferReference,
+        })
+      }, {
+        params: t.Object({ id: t.String({ minLength: 1 }) }),
+        query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+        body: t.Object({
+          transferDate: t.String({ format: 'date-time' }),
+          transferReference: t.String({ minLength: 1, maxLength: 255 }),
+        }),
         auth: true,
       })
   )

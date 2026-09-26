@@ -3,7 +3,7 @@ import { createDashboardService, type DashboardStore, type MoneyflowSummary, typ
 
 const operations: OperationsSummary = { trips: [], activeHolds: [], confirmedBookings: [], vehicles: [] }
 const moneyflow: MoneyflowSummary = {
-  payments: { PENDING: 1, APPROVED: 2, REJECTED: 0 },
+  payments: { PENDING: 1, APPROVED: 2, REJECTED: 0, REFUND_PENDING: 0, REFUNDED: 0 },
   invoiceCount: 2,
   confirmedAmount: 300000,
   invoices: [],
