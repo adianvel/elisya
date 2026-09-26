@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  production-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: postgres://palawa:ci-password@localhost:5432/palawa
+      BETTER_AUTH_SECRET: ci-only-secret
+      APP_URL: http://localhost:3000
+      API_URL: http://localhost:8000
+      PALAWA_DB_TESTS: '1'
+      PALAWA_ORGANIZATION_ID: ci-organization
+      PALAWA_OWNER_WHATSAPP_NUMBER: '+628123456789'
+      N8N_WEBHOOK_SECRET: ci-only-webhook-secret
+      S3_ENDPOINT: http://127.0.0.1:9000
+      S3_ACCESS_KEY: foo
+      S3_SECRET_KEY: bar
+      S3_BUCKET: default
+      S3_REGION: us-east-1
+    services:
+      postgres:
+        image: postgres:18.4-alpine3.24
+        env:
+          POSTGRES_USER: palawa
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: palawa
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U palawa -d palawa"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: apps/web/package.json
+      - name: Start test object storage
+        run: |
+          docker run -d --name ci-s3mock -p 9000:9090 \
+            -e COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=default \
+            adobe/s3mock:5.2.2
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9000/favicon.ico >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:9000/favicon.ico >/dev/null
+      - run: cp .env.example .env
+      - run: bun install --frozen-lockfile
+      - name: Generate database types
+        working-directory: packages/db
+        run: bun --env-file=../../.env zen generate
+      - run: bun run db:migrate
+      - name: Confirm migrations are repeatable
+        run: bun run db:migrate
+      - run: bunx tsc --noEmit --project apps/api/tsconfig.json
+      - name: Typecheck task worker
+        working-directory: apps/tasks
+        run: bun run typecheck
+      - name: Typecheck web app
+        working-directory: apps/web
+        run: bunx vue-tsc --noEmit --project .nuxt/tsconfig.app.json
+      - name: Lint web app
+        working-directory: apps/web
+        run: bun run lint
+      - run: bun test apps/api apps/tasks packages/db
+      - name: Run web unit tests
+        working-directory: apps/web
+        run: bunx vitest run
+      - run: docker build --target api -t palawa-api:ci .
+      - run: docker build --target tasks -t palawa-tasks:ci .
+      - run: docker build --target migrate -t palawa-migrate:ci .
+      - run: >-
+          docker build --target web -t palawa-web:ci
+          --build-arg APP_URL=https://app.example.test
+          --build-arg API_URL=https://api.example.test
+          --build-arg NUXT_PUBLIC_SITE_URL=https://app.example.test
+          --build-arg NUXT_PUBLIC_API_URL=https://api.example.test .

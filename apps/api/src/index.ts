@@ -3,7 +3,7 @@ import { auth } from "@repo/auth";
 import { cors } from "@elysiajs/cors";
 import { RPCApiHandler } from '@zenstackhq/server/api';
 import { createElysiaHandler } from '@zenstackhq/server/elysia';
-import { db, zenstack, schema } from '@repo/db';
+import { db, pool, zenstack, schema } from '@repo/db';
 import { requireOwner } from './authz';
 import { LogModule } from '@repo/db/enums';
 import { logger, readLogs } from '@repo/logger';
@@ -120,6 +120,31 @@ const app = new Elysia()
   .use(AccessLog)
   .use(AuthService)
   .use(AuthMacro)
+  .get('/health/live', () => ({ status: 'ok' }))
+  .get('/health/ready', async ({ set }) => {
+    const check = async (run: () => Promise<unknown>) => {
+      try {
+        await run()
+        return 'ok' as const
+      } catch {
+        return 'unavailable' as const
+      }
+    }
+    const [database, queue, storageService] = await Promise.all([
+      check(() => pool.query('SELECT 1')),
+      check(async () => {
+        const result = await pool.query<{ ready: boolean }>(
+          'SELECT EXISTS (SELECT 1 FROM pgboss.queue) AS ready',
+        )
+        if (!result.rows[0]?.ready) throw new Error('Task queue is unavailable')
+      }),
+      check(() => storage.listObjects({ maxKeys: 1 })),
+    ])
+    const checks = { database, queue, storage: storageService }
+    const ready = Object.values(checks).every((status) => status === 'ok')
+    set.status = ready ? 200 : 503
+    return { status: ready ? 'ok' : 'unavailable', checks }
+  })
   .get('/logs', ({ query, user, status }) => {
     if (user.role !== 'admin') return status(403)
     return readLogs({ ...query, levels: query.levels?.map(Number) })

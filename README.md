@@ -121,10 +121,13 @@ Required `.env` keys (repo root; loaded via `bun --env-file=../../.env`):
 | `bun run dev:web` / `bun run dev:api`  | Run a single app                                                                |
 | `bun run db:generate`                  | Regenerate ZenStack clients from `packages/db/zenstack/schema.zmodel`           |
 | `bun run db:push`                      | Push the schema to the database (dev only)                                      |
+| `bun run db:migrate`                   | Apply versioned SQL migrations (staging and production)                         |
 | `bun run auth:generate`                | Regenerate the Better Auth models fragment (`packages/db/zenstack/auth.zmodel`) |
 | `bun run --filter @repo/web typecheck` | `nuxt typecheck`                                                                |
-| `bun run --filter @repo/web lint`      | `eslint . --fix`                                                                |
+| `bun run --filter @repo/web lint`      | Check frontend lint without modifying files                                    |
 | `bun run --filter @repo/web build`     | Production build (`nuxt build`)                                                 |
+
+For the single-VPS production stack, see [deploy/README.md](deploy/README.md).
 
 Open the web app at `http://localhost:3000`:
 

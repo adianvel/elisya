@@ -26,7 +26,7 @@ The workflow URLs assume the Docker network service names `api`, `waha`, and `n8
 
 Set these hostnames to the matching internal service names if deployment uses different names. Keep API, n8n, and WAHA on a private Docker network. Publish only the webhook/reverse-proxy endpoints that need external access.
 
-Configure the WAHA session to send `message` events to n8n's production webhook:
+Configure the WAHA session to send `message` events to n8n's internal production webhook:
 
 ```json
 {
@@ -34,7 +34,7 @@ Configure the WAHA session to send `message` events to n8n's production webhook:
   "config": {
     "webhooks": [
       {
-        "url": "https://<n8n-host>/webhook/palawa/whatsapp/inbound",
+        "url": "http://n8n:5678/webhook/palawa/whatsapp/inbound",
         "events": ["message"],
         "customHeaders": [
           { "name": "Authorization", "value": "Bearer <WAHA_WEBHOOK_SECRET>" }

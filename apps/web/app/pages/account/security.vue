@@ -59,31 +59,64 @@ useHead({ title: 'Account Security' })
     <UDashboardPanel id="account-security">
       <template #header>
         <UDashboardNavbar title="Account security">
-          <template #leading><UDashboardSidebarCollapse /></template>
+          <template #leading>
+            <UDashboardSidebarCollapse />
+          </template>
         </UDashboardNavbar>
       </template>
       <template #body>
         <UContainer class="max-w-3xl space-y-6">
-          <UPageCard title="Two-factor authentication" description="Owners need an authenticator code to access business operations and financial records.">
+          <UPageCard
+            title="Two-factor authentication"
+            description="Owners need an authenticator code to access business operations and financial records."
+          >
             <UAlert
               v-if="twoFactorEnabled"
               color="success"
               title="Two-factor authentication is enabled"
               description="Sign-ins require a code from your authenticator app."
             />
-            <form v-else-if="!enrollmentStarted" class="max-w-lg space-y-4" @submit.prevent="beginEnrollment">
-              <p class="text-sm text-muted">Use an authenticator app such as 1Password, Google Authenticator, or Microsoft Authenticator.</p>
-              <UFormField label="Account password" name="password">
-                <UInput v-model="password" type="password" autocomplete="current-password" required />
+            <form
+              v-else-if="!enrollmentStarted"
+              class="max-w-lg space-y-4"
+              @submit.prevent="beginEnrollment"
+            >
+              <p class="text-sm text-muted">
+                Use an authenticator app such as 1Password, Google Authenticator, or Microsoft Authenticator.
+              </p>
+              <UFormField
+                label="Account password"
+                name="password"
+              >
+                <UInput
+                  v-model="password"
+                  type="password"
+                  autocomplete="current-password"
+                  required
+                />
               </UFormField>
-              <UButton type="submit" label="Set up authenticator" :loading="loading" />
+              <UButton
+                type="submit"
+                label="Set up authenticator"
+                :loading="loading"
+              />
             </form>
-            <div v-else class="max-w-lg space-y-5">
+            <div
+              v-else
+              class="max-w-lg space-y-5"
+            >
               <div class="space-y-2">
-                <p class="text-sm">Add this key to your authenticator app:</p>
+                <p class="text-sm">
+                  Add this key to your authenticator app:
+                </p>
                 <div class="flex items-center gap-2">
                   <code class="rounded bg-elevated px-3 py-2 text-sm break-all">{{ totpSecret }}</code>
-                  <UButton icon="i-lucide-copy" variant="ghost" aria-label="Copy authenticator key" @click="copySecret" />
+                  <UButton
+                    icon="i-lucide-copy"
+                    variant="ghost"
+                    aria-label="Copy authenticator key"
+                    @click="copySecret"
+                  />
                 </div>
               </div>
               <UAlert
@@ -92,13 +125,34 @@ useHead({ title: 'Account Security' })
                 description="Each code works once if you lose access to your authenticator. Store them somewhere private."
               />
               <ul class="grid grid-cols-2 gap-2 rounded bg-elevated p-3 font-mono text-sm">
-                <li v-for="backupCode in backupCodes" :key="backupCode">{{ backupCode }}</li>
+                <li
+                  v-for="backupCode in backupCodes"
+                  :key="backupCode"
+                >
+                  {{ backupCode }}
+                </li>
               </ul>
-              <form class="space-y-3" @submit.prevent="verifyEnrollment">
-                <UFormField label="Authenticator code" name="code">
-                  <UInput v-model="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required />
+              <form
+                class="space-y-3"
+                @submit.prevent="verifyEnrollment"
+              >
+                <UFormField
+                  label="Authenticator code"
+                  name="code"
+                >
+                  <UInput
+                    v-model="code"
+                    inputmode="numeric"
+                    autocomplete="one-time-code"
+                    maxlength="8"
+                    required
+                  />
                 </UFormField>
-                <UButton type="submit" label="Verify and enable" :loading="loading" />
+                <UButton
+                  type="submit"
+                  label="Verify and enable"
+                  :loading="loading"
+                />
               </form>
             </div>
           </UPageCard>

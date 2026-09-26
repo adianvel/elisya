@@ -24,7 +24,7 @@ async function refresh() {
     rows.value = await $fetch<Payment[]>('/payments/manage', {
       baseURL: apiUrl,
       credentials: 'include',
-      query: { organizationId: organizationId.value },
+      query: { organizationId: organizationId.value }
     })
   } catch (error) {
     handleError(error)
@@ -43,7 +43,7 @@ async function review(payment: Payment, status: 'APPROVED' | 'REJECTED') {
       credentials: 'include',
       method: 'PATCH',
       query: { organizationId: organizationId.value },
-      body: { status, reason },
+      body: { status, reason }
     })
     toast.add({ description: `Payment ${status.toLowerCase()}` })
     await refresh()
@@ -69,29 +69,56 @@ useHead({ title: 'Payments' })
             <UDashboardSidebarCollapse />
           </template>
           <template #right>
-            <UButton icon="i-lucide-refresh-cw" variant="ghost" :loading="loading" @click="refresh" />
+            <UButton
+              icon="i-lucide-refresh-cw"
+              variant="ghost"
+              :loading="loading"
+              @click="refresh"
+            />
           </template>
         </UDashboardNavbar>
       </template>
 
       <template #body>
         <UContainer class="max-w-6xl">
-          <UPageCard title="Pending payment proof" :description="`${rows.length} payment(s) awaiting review`">
-            <UTable :data="rows" :columns="[
-              { accessorKey: 'customerRef', header: 'Customer' },
-              { accessorKey: 'holdId', header: 'Hold' },
-              { accessorKey: 'submittedAt', header: 'Submitted' },
-              { accessorKey: 'status', header: 'Status' },
-              { id: 'actions', header: 'Actions' },
-            ]">
+          <UPageCard
+            title="Pending payment proof"
+            :description="`${rows.length} payment(s) awaiting review`"
+          >
+            <UTable
+              :data="rows"
+              :columns="[
+                { accessorKey: 'customerRef', header: 'Customer' },
+                { accessorKey: 'holdId', header: 'Hold' },
+                { accessorKey: 'submittedAt', header: 'Submitted' },
+                { accessorKey: 'status', header: 'Status' },
+                { id: 'actions', header: 'Actions' }
+              ]"
+            >
               <template #submittedAt-cell="{ row }">
                 {{ new Date(row.original.submittedAt).toLocaleString() }}
               </template>
               <template #actions-cell="{ row }">
                 <div class="flex gap-2">
-                  <UButton :to="proofUrl(row.original)" target="_blank" size="sm" variant="soft" label="View proof" />
-                  <UButton size="sm" label="Approve" @click="review(row.original, 'APPROVED')" />
-                  <UButton size="sm" color="error" variant="soft" label="Reject" @click="review(row.original, 'REJECTED')" />
+                  <UButton
+                    :to="proofUrl(row.original)"
+                    target="_blank"
+                    size="sm"
+                    variant="soft"
+                    label="View proof"
+                  />
+                  <UButton
+                    size="sm"
+                    label="Approve"
+                    @click="review(row.original, 'APPROVED')"
+                  />
+                  <UButton
+                    size="sm"
+                    color="error"
+                    variant="soft"
+                    label="Reject"
+                    @click="review(row.original, 'REJECTED')"
+                  />
                 </div>
               </template>
             </UTable>
