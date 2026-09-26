@@ -64,11 +64,15 @@ jobs:
       - name: Confirm migrations are repeatable
         run: bun run db:migrate
       - run: bunx tsc --noEmit --project apps/api/tsconfig.json
-      - run: bun run --filter @repo/tasks typecheck
+      - name: Typecheck task worker
+        working-directory: apps/tasks
+        run: bun run typecheck
       - name: Typecheck web app
         working-directory: apps/web
         run: bunx vue-tsc --noEmit --project .nuxt/tsconfig.app.json
-      - run: bun run --filter @repo/web lint
+      - name: Lint web app
+        working-directory: apps/web
+        run: bun run lint
       - run: bun test apps/api apps/tasks packages/db
       - name: Run web unit tests
         working-directory: apps/web
