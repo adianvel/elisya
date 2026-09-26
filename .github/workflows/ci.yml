@@ -63,7 +63,9 @@ jobs:
         run: bun run db:migrate
       - run: bunx tsc --noEmit --project apps/api/tsconfig.json
       - run: bun run --filter @repo/tasks typecheck
-      - run: bunx vue-tsc --noEmit --project apps/web/.nuxt/tsconfig.app.json
+      - name: Typecheck web app
+        working-directory: apps/web
+        run: bunx vue-tsc --noEmit --project .nuxt/tsconfig.app.json
       - run: bun run --filter @repo/web lint
       - run: bun test apps/api apps/tasks packages/db
       - name: Run web unit tests
