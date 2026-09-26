@@ -31,9 +31,18 @@ useHead({ title: 'Verify sign-in' })
 </script>
 
 <template>
-  <UPageCard title="Verify sign-in" description="Enter the current code from your authenticator app.">
-    <form class="space-y-4" @submit.prevent="verify">
-      <UFormField :label="useBackupCode ? 'Backup code' : 'Authenticator code'" name="code">
+  <UPageCard
+    title="Verify sign-in"
+    description="Enter the current code from your authenticator app."
+  >
+    <form
+      class="space-y-4"
+      @submit.prevent="verify"
+    >
+      <UFormField
+        :label="useBackupCode ? 'Backup code' : 'Authenticator code'"
+        name="code"
+      >
         <UInput
           v-model="code"
           :inputmode="useBackupCode ? 'text' : 'numeric'"
@@ -42,8 +51,17 @@ useHead({ title: 'Verify sign-in' })
           required
         />
       </UFormField>
-      <UAlert v-if="errorMessage" color="error" :description="errorMessage" />
-      <UButton type="submit" label="Verify" :loading="loading" block />
+      <UAlert
+        v-if="errorMessage"
+        color="error"
+        :description="errorMessage"
+      />
+      <UButton
+        type="submit"
+        label="Verify"
+        :loading="loading"
+        block
+      />
       <UButton
         type="button"
         variant="link"
@@ -53,7 +71,10 @@ useHead({ title: 'Verify sign-in' })
       />
     </form>
     <template #footer>
-      <NuxtLink to="/auth/signin" class="text-primary font-medium">Return to sign in</NuxtLink>
+      <NuxtLink
+        to="/auth/signin"
+        class="text-primary font-medium"
+      >Return to sign in</NuxtLink>
     </template>
   </UPageCard>
 </template>

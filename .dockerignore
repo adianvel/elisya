@@ -2,6 +2,11 @@
 **/.nuxt
 **/.output
 **/dist
+**/*.test.ts
+**/*.spec.ts
 .git
+.env
+.env.*
+!.env.example
 .pgdata
 .minio-data

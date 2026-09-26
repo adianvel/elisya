@@ -16,7 +16,7 @@ async function accept() {
   if (!client || !invitationId.value) return
   accepting.value = true
   try {
-    const { data, error } = await client.organization.acceptInvitation({
+    const { error } = await client.organization.acceptInvitation({
       invitationId: invitationId.value
     })
     if (error) throw new Error(error.message)

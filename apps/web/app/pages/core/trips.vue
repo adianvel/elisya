@@ -25,7 +25,7 @@ const form = reactive({
   destination: '',
   departureAt: '',
   price: 0,
-  seatQuota: 1,
+  seatQuota: 1
 })
 
 async function refresh() {
@@ -35,7 +35,7 @@ async function refresh() {
     rows.value = await $fetch<Trip[]>('/trips/manage', {
       baseURL: apiUrl,
       credentials: 'include',
-      query: { organizationId: organizationId.value },
+      query: { organizationId: organizationId.value }
     })
   } catch (error) {
     handleError(error)
@@ -54,8 +54,8 @@ async function createTrip() {
       body: {
         organizationId: organizationId.value,
         ...form,
-        departureAt: new Date(form.departureAt).toISOString(),
-      },
+        departureAt: new Date(form.departureAt).toISOString()
+      }
     })
     Object.assign(form, { origin: '', destination: '', departureAt: '', price: 0, seatQuota: 1 })
     toast.add({ description: 'Trip created' })
@@ -76,7 +76,7 @@ async function updateTrip(trip: Trip, changes: Partial<Trip>) {
       baseURL: apiUrl,
       credentials: 'include',
       method: 'PATCH',
-      body: { organizationId: organizationId.value, ...changes },
+      body: { organizationId: organizationId.value, ...changes }
     })
     await refresh()
   } catch (error) {
@@ -97,38 +97,91 @@ useHead({ title: 'Trips' })
             <UDashboardSidebarCollapse />
           </template>
           <template #right>
-            <UButton icon="i-lucide-refresh-cw" variant="ghost" :loading="loading" @click="refresh" />
+            <UButton
+              icon="i-lucide-refresh-cw"
+              variant="ghost"
+              :loading="loading"
+              @click="refresh"
+            />
           </template>
         </UDashboardNavbar>
       </template>
 
       <template #body>
         <UContainer class="space-y-6 max-w-6xl">
-          <UPageCard title="Create Trip" description="Add a scheduled route with a fixed price and seat quota.">
-            <form class="grid gap-4 sm:grid-cols-2 lg:grid-cols-6" @submit.prevent="createTrip">
-              <UInput v-model="form.origin" placeholder="Origin" required />
-              <UInput v-model="form.destination" placeholder="Destination" required />
-              <UInput v-model="form.departureAt" type="datetime-local" required />
-              <UInput v-model.number="form.price" type="number" min="0" placeholder="Price" required />
-              <UInput v-model.number="form.seatQuota" type="number" min="1" placeholder="Seats" required />
-              <UButton type="submit" label="Create" :disabled="!organizationId" />
+          <UPageCard
+            title="Create Trip"
+            description="Add a scheduled route with a fixed price and seat quota."
+          >
+            <form
+              class="grid gap-4 sm:grid-cols-2 lg:grid-cols-6"
+              @submit.prevent="createTrip"
+            >
+              <UInput
+                v-model="form.origin"
+                placeholder="Origin"
+                required
+              />
+              <UInput
+                v-model="form.destination"
+                placeholder="Destination"
+                required
+              />
+              <UInput
+                v-model="form.departureAt"
+                type="datetime-local"
+                required
+              />
+              <UInput
+                v-model.number="form.price"
+                type="number"
+                min="0"
+                placeholder="Price"
+                required
+              />
+              <UInput
+                v-model.number="form.seatQuota"
+                type="number"
+                min="1"
+                placeholder="Seats"
+                required
+              />
+              <UButton
+                type="submit"
+                label="Create"
+                :disabled="!organizationId"
+              />
             </form>
           </UPageCard>
 
-          <UPageCard title="Trip catalog" :description="`${rows.length} Trip(s)`">
-            <UTable :data="rows" :columns="[
-              { accessorKey: 'origin', header: 'Origin' },
-              { accessorKey: 'destination', header: 'Destination' },
-              { accessorKey: 'departureAt', header: 'Departure' },
-              { accessorKey: 'price', header: 'Price' },
-              { accessorKey: 'seatQuota', header: 'Seats' },
-              { accessorKey: 'status', header: 'Status' },
-            ]">
+          <UPageCard
+            title="Trip catalog"
+            :description="`${rows.length} Trip(s)`"
+          >
+            <UTable
+              :data="rows"
+              :columns="[
+                { accessorKey: 'origin', header: 'Origin' },
+                { accessorKey: 'destination', header: 'Destination' },
+                { accessorKey: 'departureAt', header: 'Departure' },
+                { accessorKey: 'price', header: 'Price' },
+                { accessorKey: 'seatQuota', header: 'Seats' },
+                { accessorKey: 'status', header: 'Status' }
+              ]"
+            >
               <template #origin-cell="{ row }">
-                <UInput v-model="row.original.origin" size="sm" @change="updateTrip(row.original, { origin: row.original.origin })" />
+                <UInput
+                  v-model="row.original.origin"
+                  size="sm"
+                  @change="updateTrip(row.original, { origin: row.original.origin })"
+                />
               </template>
               <template #destination-cell="{ row }">
-                <UInput v-model="row.original.destination" size="sm" @change="updateTrip(row.original, { destination: row.original.destination })" />
+                <UInput
+                  v-model="row.original.destination"
+                  size="sm"
+                  @change="updateTrip(row.original, { destination: row.original.destination })"
+                />
               </template>
               <template #departureAt-cell="{ row }">
                 <UInput
@@ -139,10 +192,22 @@ useHead({ title: 'Trips' })
                 />
               </template>
               <template #price-cell="{ row }">
-                <UInput v-model.number="row.original.price" type="number" min="0" size="sm" @change="updateTrip(row.original, { price: row.original.price })" />
+                <UInput
+                  v-model.number="row.original.price"
+                  type="number"
+                  min="0"
+                  size="sm"
+                  @change="updateTrip(row.original, { price: row.original.price })"
+                />
               </template>
               <template #seatQuota-cell="{ row }">
-                <UInput v-model.number="row.original.seatQuota" type="number" min="1" size="sm" @change="updateTrip(row.original, { seatQuota: row.original.seatQuota })" />
+                <UInput
+                  v-model.number="row.original.seatQuota"
+                  type="number"
+                  min="1"
+                  size="sm"
+                  @change="updateTrip(row.original, { seatQuota: row.original.seatQuota })"
+                />
               </template>
               <template #status-cell="{ row }">
                 <USelect
