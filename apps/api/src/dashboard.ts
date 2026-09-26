@@ -1,4 +1,5 @@
 import { pool, zenstack } from '@repo/db'
+import type { PaymentStatus } from './payments'
 
 export type DashboardActor = { userId: string; organizationId: string }
 
@@ -10,7 +11,7 @@ export type OperationsSummary = {
 }
 
 export type MoneyflowSummary = {
-  payments: { PENDING: number; APPROVED: number; REJECTED: number }
+  payments: Record<PaymentStatus, number>
   invoiceCount: number
   confirmedAmount: number
   invoices: Array<{ id: string; bookingId: string; amount: number; currency: string; issuedAt: Date }>
@@ -63,7 +64,7 @@ const store: DashboardStore = {
 
   async moneyflow(organizationId) {
     const [payments, invoices, invoiceTotal, auditEvents] = await Promise.all([
-      pool.query<{ status: 'PENDING' | 'APPROVED' | 'REJECTED'; count: number }>(
+      pool.query<{ status: PaymentStatus; count: number }>(
         `SELECT status, COUNT(*)::int AS count FROM "payment" WHERE "organizationId" = $1 GROUP BY status`,
         [organizationId],
       ),
@@ -83,7 +84,7 @@ const store: DashboardStore = {
         [organizationId],
       ),
     ])
-    const paymentSummary = { PENDING: 0, APPROVED: 0, REJECTED: 0 }
+    const paymentSummary: Record<PaymentStatus, number> = { PENDING: 0, APPROVED: 0, REJECTED: 0, REFUND_PENDING: 0, REFUNDED: 0 }
     for (const row of payments.rows) paymentSummary[row.status] = row.count
     return {
       payments: paymentSummary,

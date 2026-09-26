@@ -101,6 +101,8 @@ model Organization {
     vehicles          Vehicle[]
     integrationEvents IntegrationEvent[]
     whatsappOutbox    WhatsAppOutbox[]
+    cancellationRequests CancellationRequest[]
+    refunds           Refund[]
 
     @@map('organization')
 }
@@ -109,6 +111,7 @@ enum TripStatus {
     DRAFT
     PUBLISHED
     ARCHIVED
+    CANCELLED
 }
 
 model Trip {
@@ -167,6 +170,8 @@ enum PaymentStatus {
     PENDING
     APPROVED
     REJECTED
+    REFUND_PENDING
+    REFUNDED
 }
 
 model Payment {
@@ -186,6 +191,8 @@ model Payment {
     createdAt      DateTime      @default(now())
     updatedAt      DateTime      @default(now()) @updatedAt
     booking        Booking?
+    cancellationRequests CancellationRequest[]
+    refund         Refund?
 
     @@unique([organizationId, customerRef, idempotencyKey])
     @@index([organizationId, status, submittedAt])
@@ -196,6 +203,7 @@ model Payment {
 enum BookingStatus {
     CONFIRMED
     PAYMENT_REJECTED
+    CANCELLED
 }
 
 model Booking {
@@ -215,6 +223,8 @@ model Booking {
     createdAt      DateTime      @default(now())
     updatedAt      DateTime      @default(now()) @updatedAt
     invoice        Invoice?
+    cancellationRequests CancellationRequest[]
+    refund         Refund?
 
     @@index([organizationId, status, createdAt])
     @@index([organizationId, customerRef, createdAt])
@@ -240,6 +250,70 @@ model Invoice {
 
     @@index([organizationId, issuedAt])
     @@map('invoice')
+}
+
+enum CancellationRequestStatus {
+    PENDING
+    APPROVED
+    REJECTED
+}
+
+enum CancellationSource {
+    CUSTOMER
+    TRIP
+}
+
+model CancellationRequest {
+    id             String                   @id
+    organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+    organizationId String
+    booking        Booking?                 @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+    bookingId      String?
+    payment        Payment?                 @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+    paymentId      String?
+    customerRef    String
+    idempotencyKey String
+    source         CancellationSource @default(CUSTOMER)
+    status         CancellationRequestStatus @default(PENDING)
+    reason         String?
+    requestedAt    DateTime                 @default(now())
+    reviewedBy     String?
+    reviewedAt     DateTime?
+    createdAt      DateTime                 @default(now())
+    updatedAt      DateTime                 @default(now()) @updatedAt
+
+    @@unique([organizationId, customerRef, idempotencyKey])
+    @@index([organizationId, status, requestedAt])
+    @@index([bookingId, status])
+    @@index([paymentId, status])
+    @@map('cancellationRequest')
+}
+
+enum RefundStatus {
+    PENDING
+    COMPLETED
+}
+
+model Refund {
+    id                String       @id
+    organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+    organizationId    String
+    booking           Booking?     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+    bookingId         String?      @unique
+    payment           Payment?     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+    paymentId         String?      @unique
+    customerRef       String
+    amount            Int
+    currency          String
+    status            RefundStatus @default(PENDING)
+    transferredAt     DateTime?
+    transferReference String?
+    recordedBy        String?
+    createdAt         DateTime     @default(now())
+    updatedAt         DateTime     @default(now()) @updatedAt
+
+    @@index([organizationId, status, createdAt])
+    @@map('refund')
 }
 
 model AuditEvent {

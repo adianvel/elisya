@@ -8,14 +8,18 @@ import { configuredOrganizationId, trips } from './trips'
 import { holds } from './holds'
 import { bookings } from './bookings'
 import { payments } from './payments'
+import { cancellations } from './cancellations'
 import { notifyWhatsApp } from './notifications'
 import { guardMessage, isN8nWebhookAuthorized, normalizeWhatsAppSender, WhatsAppSenderError } from './integrations'
 
 const SYSTEM_PROMPT = [
   'You are a booking assistant for Palawa.',
-  'Use only the available domain tools to help Customers discover Trips, create and cancel Holds, and check Payment and Booking status.',
+  'Use only the available domain tools to help Customers discover Trips, create and cancel Holds, request Booking or pending-Payment cancellation, and check Payment and Booking status.',
   'When you create a Hold, state the seat count, total due from the Hold price snapshot, currency, and expiry. Give the Hold ID and ask the Customer to include it in the caption of any transfer receipt image or PDF.',
   'Create at most one Hold per inbound message; ask the Customer to send another message for a separate reservation.',
+  'Create at most one cancellation request per inbound message; ask the Customer to send another message for a separate request.',
+  'A cancellation request does not cancel a Booking immediately. Explain that the Owner will review it.',
+  'When asked to cancel without an ID, check the latest Payment and Booking for this sender, then request cancellation for the relevant record. Ask which one if the target is ambiguous.',
   'For a status request without an ID, check the latest Payment and Booking for the current sender. Never expose another Customer’s information.',
   'Never invent Trip availability, prices, seat quotas, or bank transfer details.',
   'Answer in the same language as the user, in plain, non-technical language for business users.',
@@ -61,6 +65,19 @@ export function assistantTools(customerRef: string, organizationId: string, even
       description: 'Retrieve the latest Payment for this Customer, or a specific Payment when its ID is given.',
       inputSchema: zodSchema(z.object({ paymentId: z.string().min(1).optional() })),
       execute: (input) => payments.getForCustomer(organizationId, customerRef, input.paymentId),
+    }),
+    request_cancellation: tool<{ bookingId?: string; paymentId?: string }, any, any>({
+      description: 'Request cancellation of one confirmed Booking or pending Payment. The Owner decides; this does not cancel immediately.',
+      inputSchema: zodSchema(z.object({
+        bookingId: z.string().min(1).optional(),
+        paymentId: z.string().min(1).optional(),
+      }).refine((input) => Boolean(input.bookingId) !== Boolean(input.paymentId))),
+      execute: (input) => cancellations.request({
+        organizationId,
+        customerRef,
+        ...input,
+        idempotencyKey: `whatsapp:${eventId}:cancellation`,
+      }),
     }),
   }
 }

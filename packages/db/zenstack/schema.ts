@@ -462,6 +462,18 @@ export class SchemaType implements SchemaDef {
                     type: "WhatsAppOutbox",
                     array: true,
                     relation: { opposite: "organization" }
+                },
+                cancellationRequests: {
+                    name: "cancellationRequests",
+                    type: "CancellationRequest",
+                    array: true,
+                    relation: { opposite: "organization" }
+                },
+                refunds: {
+                    name: "refunds",
+                    type: "Refund",
+                    array: true,
+                    relation: { opposite: "organization" }
                 }
             },
             attributes: [
@@ -777,6 +789,18 @@ export class SchemaType implements SchemaDef {
                     type: "Booking",
                     optional: true,
                     relation: { opposite: "payment" }
+                },
+                cancellationRequests: {
+                    name: "cancellationRequests",
+                    type: "CancellationRequest",
+                    array: true,
+                    relation: { opposite: "payment" }
+                },
+                refund: {
+                    name: "refund",
+                    type: "Refund",
+                    optional: true,
+                    relation: { opposite: "payment" }
                 }
             },
             attributes: [
@@ -892,6 +916,18 @@ export class SchemaType implements SchemaDef {
                     type: "Invoice",
                     optional: true,
                     relation: { opposite: "booking" }
+                },
+                cancellationRequests: {
+                    name: "cancellationRequests",
+                    type: "CancellationRequest",
+                    array: true,
+                    relation: { opposite: "booking" }
+                },
+                refund: {
+                    name: "refund",
+                    type: "Refund",
+                    optional: true,
+                    relation: { opposite: "booking" }
                 }
             },
             attributes: [
@@ -986,6 +1022,240 @@ export class SchemaType implements SchemaDef {
             uniqueFields: {
                 id: { type: "String" },
                 bookingId: { type: "String" }
+            }
+        },
+        CancellationRequest: {
+            name: "CancellationRequest",
+            fields: {
+                id: {
+                    name: "id",
+                    type: "String",
+                    id: true,
+                    attributes: [{ name: "@id" }] as readonly AttributeApplication[]
+                },
+                organization: {
+                    name: "organization",
+                    type: "Organization",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "cancellationRequests", fields: ["organizationId"], references: ["id"], onDelete: "Cascade" }
+                },
+                organizationId: {
+                    name: "organizationId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "organization"
+                    ] as readonly string[]
+                },
+                booking: {
+                    name: "booking",
+                    type: "Booking",
+                    optional: true,
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("bookingId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "cancellationRequests", fields: ["bookingId"], references: ["id"], onDelete: "Cascade" }
+                },
+                bookingId: {
+                    name: "bookingId",
+                    type: "String",
+                    optional: true,
+                    foreignKeyFor: [
+                        "booking"
+                    ] as readonly string[]
+                },
+                payment: {
+                    name: "payment",
+                    type: "Payment",
+                    optional: true,
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("paymentId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "cancellationRequests", fields: ["paymentId"], references: ["id"], onDelete: "Cascade" }
+                },
+                paymentId: {
+                    name: "paymentId",
+                    type: "String",
+                    optional: true,
+                    foreignKeyFor: [
+                        "payment"
+                    ] as readonly string[]
+                },
+                customerRef: {
+                    name: "customerRef",
+                    type: "String"
+                },
+                idempotencyKey: {
+                    name: "idempotencyKey",
+                    type: "String"
+                },
+                source: {
+                    name: "source",
+                    type: "CancellationSource",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.literal("CUSTOMER") }] }] as readonly AttributeApplication[],
+                    default: "CUSTOMER" as FieldDefault
+                },
+                status: {
+                    name: "status",
+                    type: "CancellationRequestStatus",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.literal("PENDING") }] }] as readonly AttributeApplication[],
+                    default: "PENDING" as FieldDefault
+                },
+                reason: {
+                    name: "reason",
+                    type: "String",
+                    optional: true
+                },
+                requestedAt: {
+                    name: "requestedAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                },
+                reviewedBy: {
+                    name: "reviewedBy",
+                    type: "String",
+                    optional: true
+                },
+                reviewedAt: {
+                    name: "reviewedAt",
+                    type: "DateTime",
+                    optional: true
+                },
+                createdAt: {
+                    name: "createdAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                },
+                updatedAt: {
+                    name: "updatedAt",
+                    type: "DateTime",
+                    updatedAt: true,
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }, { name: "@updatedAt" }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                }
+            },
+            attributes: [
+                { name: "@@unique", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("customerRef"), ExpressionUtils.field("idempotencyKey")]) }] },
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("status"), ExpressionUtils.field("requestedAt")]) }] },
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("bookingId"), ExpressionUtils.field("status")]) }] },
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("paymentId"), ExpressionUtils.field("status")]) }] },
+                { name: "@@map", args: [{ name: "name", value: ExpressionUtils.literal("cancellationRequest") }] }
+            ] as readonly AttributeApplication[],
+            idFields: ["id"],
+            uniqueFields: {
+                id: { type: "String" },
+                organizationId_customerRef_idempotencyKey: { organizationId: { type: "String" }, customerRef: { type: "String" }, idempotencyKey: { type: "String" } }
+            }
+        },
+        Refund: {
+            name: "Refund",
+            fields: {
+                id: {
+                    name: "id",
+                    type: "String",
+                    id: true,
+                    attributes: [{ name: "@id" }] as readonly AttributeApplication[]
+                },
+                organization: {
+                    name: "organization",
+                    type: "Organization",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "refunds", fields: ["organizationId"], references: ["id"], onDelete: "Cascade" }
+                },
+                organizationId: {
+                    name: "organizationId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "organization"
+                    ] as readonly string[]
+                },
+                booking: {
+                    name: "booking",
+                    type: "Booking",
+                    optional: true,
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("bookingId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "refund", fields: ["bookingId"], references: ["id"], onDelete: "Cascade" }
+                },
+                bookingId: {
+                    name: "bookingId",
+                    type: "String",
+                    unique: true,
+                    optional: true,
+                    attributes: [{ name: "@unique" }] as readonly AttributeApplication[],
+                    foreignKeyFor: [
+                        "booking"
+                    ] as readonly string[]
+                },
+                payment: {
+                    name: "payment",
+                    type: "Payment",
+                    optional: true,
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("paymentId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "refund", fields: ["paymentId"], references: ["id"], onDelete: "Cascade" }
+                },
+                paymentId: {
+                    name: "paymentId",
+                    type: "String",
+                    unique: true,
+                    optional: true,
+                    attributes: [{ name: "@unique" }] as readonly AttributeApplication[],
+                    foreignKeyFor: [
+                        "payment"
+                    ] as readonly string[]
+                },
+                customerRef: {
+                    name: "customerRef",
+                    type: "String"
+                },
+                amount: {
+                    name: "amount",
+                    type: "Int"
+                },
+                currency: {
+                    name: "currency",
+                    type: "String"
+                },
+                status: {
+                    name: "status",
+                    type: "RefundStatus",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.literal("PENDING") }] }] as readonly AttributeApplication[],
+                    default: "PENDING" as FieldDefault
+                },
+                transferredAt: {
+                    name: "transferredAt",
+                    type: "DateTime",
+                    optional: true
+                },
+                transferReference: {
+                    name: "transferReference",
+                    type: "String",
+                    optional: true
+                },
+                recordedBy: {
+                    name: "recordedBy",
+                    type: "String",
+                    optional: true
+                },
+                createdAt: {
+                    name: "createdAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                },
+                updatedAt: {
+                    name: "updatedAt",
+                    type: "DateTime",
+                    updatedAt: true,
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }, { name: "@updatedAt" }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                }
+            },
+            attributes: [
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("status"), ExpressionUtils.field("createdAt")]) }] },
+                { name: "@@map", args: [{ name: "name", value: ExpressionUtils.literal("refund") }] }
+            ] as readonly AttributeApplication[],
+            idFields: ["id"],
+            uniqueFields: {
+                id: { type: "String" },
+                bookingId: { type: "String" },
+                paymentId: { type: "String" }
             }
         },
         AuditEvent: {
@@ -1639,7 +1909,8 @@ export class SchemaType implements SchemaDef {
             values: {
                 DRAFT: "DRAFT",
                 PUBLISHED: "PUBLISHED",
-                ARCHIVED: "ARCHIVED"
+                ARCHIVED: "ARCHIVED",
+                CANCELLED: "CANCELLED"
             }
         },
         HoldStatus: {
@@ -1655,20 +1926,45 @@ export class SchemaType implements SchemaDef {
             values: {
                 PENDING: "PENDING",
                 APPROVED: "APPROVED",
-                REJECTED: "REJECTED"
+                REJECTED: "REJECTED",
+                REFUND_PENDING: "REFUND_PENDING",
+                REFUNDED: "REFUNDED"
             }
         },
         BookingStatus: {
             name: "BookingStatus",
             values: {
                 CONFIRMED: "CONFIRMED",
-                PAYMENT_REJECTED: "PAYMENT_REJECTED"
+                PAYMENT_REJECTED: "PAYMENT_REJECTED",
+                CANCELLED: "CANCELLED"
             }
         },
         InvoiceStatus: {
             name: "InvoiceStatus",
             values: {
                 ISSUED: "ISSUED"
+            }
+        },
+        CancellationRequestStatus: {
+            name: "CancellationRequestStatus",
+            values: {
+                PENDING: "PENDING",
+                APPROVED: "APPROVED",
+                REJECTED: "REJECTED"
+            }
+        },
+        CancellationSource: {
+            name: "CancellationSource",
+            values: {
+                CUSTOMER: "CUSTOMER",
+                TRIP: "TRIP"
+            }
+        },
+        RefundStatus: {
+            name: "RefundStatus",
+            values: {
+                PENDING: "PENDING",
+                COMPLETED: "COMPLETED"
             }
         },
         VehicleStatus: {

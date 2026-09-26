@@ -1,7 +1,7 @@
 import { pool, zenstack } from '@repo/db'
 import { ulid } from 'ulid'
 
-export type BookingStatus = 'CONFIRMED' | 'PAYMENT_REJECTED'
+export type BookingStatus = 'CONFIRMED' | 'PAYMENT_REJECTED' | 'CANCELLED'
 
 export type Invoice = {
   id: string

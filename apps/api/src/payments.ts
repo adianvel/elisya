@@ -4,7 +4,7 @@ import { materializeBooking } from './bookings'
 import { notifyWhatsApp } from './notifications'
 import type { NotificationSink } from './holds'
 
-export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'REFUND_PENDING' | 'REFUNDED'
 
 export type Payment = {
   id: string
@@ -124,6 +124,18 @@ const store: PaymentStore = {
     const client = await pool.connect()
     try {
       await client.query('BEGIN')
+      const target = await client.query<{ holdId: string }>(
+        `SELECT "holdId" FROM "payment" WHERE id = $1 AND "organizationId" = $2`,
+        [id, actor.organizationId],
+      )
+      if (!target.rows[0]) throw new Error('Payment not found')
+      const trip = await client.query<{ id: string }>(
+        `SELECT t.id
+         FROM "trip" t JOIN "hold" h ON h."tripId" = t.id AND h."organizationId" = t."organizationId"
+         WHERE h.id = $1 AND h."organizationId" = $2 FOR UPDATE OF t`,
+        [target.rows[0].holdId, actor.organizationId],
+      )
+      if (!trip.rows[0]) throw new Error('Payment not found')
       const current = await client.query<PaymentRecord>(
         `SELECT id, "organizationId", "holdId", "customerRef", "proofKey", status, "rejectionReason", "submittedAt", "reviewedAt"
          FROM "payment" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
@@ -134,6 +146,13 @@ const store: PaymentStore = {
         await client.query('COMMIT')
         return current.rows[0]
       }
+      // This Payment row is locked; read the case without locking it to avoid a cycle with cancellation review.
+      const cancellation = await client.query<{ id: string }>(
+        `SELECT id FROM "cancellationRequest"
+         WHERE "organizationId" = $1 AND "paymentId" = $2 AND status = 'PENDING'`,
+        [actor.organizationId, id],
+      )
+      if (cancellation.rows[0]) throw new Error('Payment has a pending cancellation request; review that request first')
       await client.query(
         `UPDATE "payment"
          SET status = $3, "rejectionReason" = $4, "reviewedBy" = $5, "reviewedAt" = $6, "updatedAt" = $6

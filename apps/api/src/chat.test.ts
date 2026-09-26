@@ -8,6 +8,7 @@ test('the WhatsApp assistant exposes only the approved domain tools', () => {
     'get_booking_status',
     'get_payment_status',
     'list_available_trips',
+    'request_cancellation',
   ])
 })
 
