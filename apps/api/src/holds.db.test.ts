@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { randomUUID } from 'node:crypto'
 import { pool } from '@repo/db'
+import { bookings } from './bookings'
 import { createHoldService } from './holds'
 import { createPaymentService } from './payments'
 
@@ -67,6 +68,13 @@ test.skipIf(process.env.PALAWA_DB_TESTS !== '1')('a pending Payment keeps the Ho
        VALUES ($1, $2, $3, 'first', 'proof/first.jpg', 'PENDING', 'first', $4)`,
       [`payment-${suffix}`, organizationId, hold.id, new Date(now.getTime() + 14 * 60_000)],
     )
+    await Bun.sleep(50)
+
+    const holdNotice = await pool.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM "whatsappOutbox" WHERE "organizationId" = $1 AND "eventKey" = $2`,
+      [organizationId, `hold:${hold.id}`],
+    )
+    expect(holdNotice.rows[0]?.count).toBe(1)
     await Bun.sleep(50)
 
     await expect(holds.create({
@@ -150,6 +158,11 @@ test.skipIf(process.env.PALAWA_DB_TESTS !== '1')('Owner approval invoices the pr
     await Bun.sleep(50)
 
     const hold = await holds.create({ organizationId, tripId, customerRef: 'customer', seatCount: 2, idempotencyKey: 'hold', now })
+    const holdNotice = await pool.query<{ text: string }>(
+      `SELECT text FROM "whatsappOutbox" WHERE "organizationId" = $1 AND "eventKey" = $2`,
+      [organizationId, `hold:${hold.id}`],
+    )
+    expect(holdNotice.rows[0]?.text).toContain('Total due: 200 IDR')
     await Bun.sleep(50)
     const paymentInput = {
       organizationId,
@@ -162,6 +175,20 @@ test.skipIf(process.env.PALAWA_DB_TESTS !== '1')('Owner approval invoices the pr
     const payment = await payments.submit(paymentInput)
     const paymentRetry = await payments.submit(paymentInput)
     expect(paymentRetry.id).toBe(payment.id)
+    const customerPayment = await payments.getForCustomer(organizationId, 'customer')
+    expect(customerPayment).toMatchObject({ id: payment.id, status: 'PENDING' })
+    expect(customerPayment).not.toHaveProperty('proofKey')
+    expect(await payments.getForCustomer(organizationId, 'another-customer')).toBeNull()
+    const paymentNotice = await pool.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM "whatsappOutbox" WHERE "organizationId" = $1 AND "eventKey" = $2`,
+      [organizationId, `payment:${payment.id}:submitted`],
+    )
+    expect(paymentNotice.rows[0]?.count).toBe(1)
+    const pendingNotice = await pool.query<{ text: string }>(
+      `SELECT text FROM "whatsappOutbox" WHERE "organizationId" = $1 AND "eventKey" = $2`,
+      [organizationId, `payment:${payment.id}:submitted`],
+    )
+    expect(pendingNotice.rows[0]?.text).toContain('pending Owner review')
     const submittedAudit = await pool.query<{ count: number }>(
       `SELECT COUNT(*)::int AS count FROM "auditEvent" WHERE "entityType" = 'Payment' AND "entityId" = $1 AND action = 'payment.submitted'`,
       [payment.id],
@@ -198,11 +225,22 @@ test.skipIf(process.env.PALAWA_DB_TESTS !== '1')('Owner approval invoices the pr
     expect(approved.status).toBe('APPROVED')
     const convertedHold = await pool.query<{ status: string }>(`SELECT status FROM "hold" WHERE id = $1`, [hold.id])
     expect(convertedHold.rows[0]?.status).toBe('ACTIVE')
+    const confirmationNotice = await pool.query<{ text: string; bookingId: string; amount: number; currency: string }>(
+      `SELECT o.text, b.id AS "bookingId", i.amount, i.currency
+       FROM "whatsappOutbox" o
+       JOIN "booking" b ON b."paymentId" = $3 AND b."organizationId" = o."organizationId"
+       JOIN "invoice" i ON i."bookingId" = b.id
+       WHERE o."organizationId" = $1 AND o."eventKey" = $2`,
+      [organizationId, `booking:${payment.id}:confirmed`, payment.id],
+    )
+    expect(confirmationNotice.rows[0]?.text).toContain(`Booking ${confirmationNotice.rows[0]?.bookingId} is confirmed.`)
+    expect(confirmationNotice.rows[0]?.text).toContain(`${confirmationNotice.rows[0]?.amount} ${confirmationNotice.rows[0]?.currency}`)
     const invoice = await pool.query<{ amount: number; currency: string }>(
       `SELECT amount, currency FROM "invoice" WHERE "bookingId" = (SELECT id FROM "booking" WHERE "paymentId" = $1)`,
       [payment.id],
     )
     expect(invoice.rows[0]).toEqual({ amount: 200, currency: 'IDR' })
+    expect(await bookings.getForCustomer(organizationId, 'customer')).toMatchObject({ id: confirmationNotice.rows[0]?.bookingId })
 
     const afterReview = new Date(now.getTime() + 17 * 60_000)
     const rejected = await payments.review(
@@ -220,6 +258,12 @@ test.skipIf(process.env.PALAWA_DB_TESTS !== '1')('Owner approval invoices the pr
       [secondPayment.id],
     )
     expect(rejectionAudit.rows.map((row) => row.action)).toContain('payment.rejected')
+    const rejectionNotice = await pool.query<{ count: number; text: string }>(
+      `SELECT COUNT(*)::int AS count, MIN(text) AS text FROM "whatsappOutbox" WHERE "organizationId" = $1 AND "eventKey" = $2 GROUP BY "organizationId", "eventKey"`,
+      [organizationId, `payment:${secondPayment.id}:rejected`],
+    )
+    expect(rejectionNotice.rows[0]?.count).toBe(1)
+    expect(rejectionNotice.rows[0]?.text).toContain('Amount does not match')
     const closedHold = await pool.query<{ status: string }>(
       `SELECT status FROM "hold" WHERE id = $1`,
       [secondHold.id],
@@ -239,6 +283,11 @@ test.skipIf(process.env.PALAWA_DB_TESTS !== '1')('Owner approval invoices the pr
       [replacement.id],
     )
     expect(holdAudit.rows.map((row) => row.action)).toContain('hold.cancelled')
+    const cancelledNotice = await pool.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM "whatsappOutbox" WHERE "organizationId" = $1 AND "eventKey" = $2`,
+      [organizationId, `hold:${replacement.id}:cancelled`],
+    )
+    expect(cancelledNotice.rows[0]?.count).toBe(1)
     await Bun.sleep(50)
     await expect(holds.create({
       organizationId, tripId, customerRef: 'after-cancel', seatCount: 1, idempotencyKey: 'after-cancel',

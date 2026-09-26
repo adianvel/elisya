@@ -41,7 +41,8 @@ export async function enqueueTask<TId extends TaskId>(
   const singletonKey = typeof data === 'object' && data !== null && 'eventKey' in data
     ? String((data as { eventKey: string }).eventKey)
     : undefined
-  return queue.send(taskId, data, singletonKey ? { singletonKey, singletonSeconds: 24 * 60 * 60 } : undefined)
+  const singletonSeconds = taskId === 'notify.whatsapp' ? 10 * 60 : 24 * 60 * 60
+  return queue.send(taskId, data, singletonKey ? { singletonKey, singletonSeconds } : undefined)
 }
 
 export async function stopTasks() {

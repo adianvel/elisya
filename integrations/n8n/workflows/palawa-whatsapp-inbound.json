@@ -1,0 +1,259 @@
+{
+  "name": "Palawa WhatsApp inbound",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "palawa/whatsapp/inbound",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {
+          "onlyRunIf": "={{ $json.body?.event === 'message' && $json.body?.payload?.fromMe === false && typeof $json.body?.payload?.from === 'string' && /^[1-9]\\d{7,14}@c\\.us$/.test($json.body.payload.from) }}"
+        }
+      },
+      "id": "5b296c19-3b7e-409a-bf1f-7cd7151e88d5",
+      "name": "WAHA inbound",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [240, 300],
+      "webhookId": "d8601009-3cd4-4f45-9e08-712e1a0810ee"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "4df7af6a-74ce-426d-a585-447684dc1139",
+              "leftValue": "={{ $json.body.payload.hasMedia }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5f8d4f31-42a0-47bd-a198-643e858e49b5",
+      "name": "Has media",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/integrations/n8n/whatsapp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('WAHA inbound').first().json.body }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "89b9d415-020e-4ddc-8bd2-e860fc9d2d0c",
+      "name": "Map WAHA message in Elysia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [740, 440]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/chat/whatsapp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ eventId: $('WAHA inbound').first().json.body.payload.id, sender: $('WAHA inbound').first().json.body.payload.from }) }}",
+        "options": { "timeout": 120000 }
+      },
+      "id": "956d7bb3-c4d4-4d20-a3b6-6675bfe7151d",
+      "name": "Run Elysia assistant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1260, 360]
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = $('WAHA inbound').first().json.body;\nconst caption = String(event.payload.body ?? '');\nconst holdId = caption.match(/\\b[0-9A-HJKMNP-TV-Z]{26}\\b/i)?.[0]?.toUpperCase() ?? '';\nconst mediaUrl = typeof event.payload.media?.url === 'string' ? event.payload.media.url : '';\nconst text = !holdId ? 'Please send the Hold ID in the image caption (for example, Hold <ID>) so I can match your receipt.' : 'I could not download that receipt. Please send the image or PDF again in a moment.';\nreturn [{ json: { holdId, mediaUrl, ready: Boolean(holdId && mediaUrl), text } }];"
+      },
+      "id": "14ce80ac-3d2d-4d4d-8963-62c0fc082123",
+      "name": "Extract Hold ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 160]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "b150b33b-d171-4506-a87b-a19380e1c8a3",
+              "leftValue": "={{ $json.ready }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0c699759-f50a-497b-9baf-d9161ad44dae",
+      "name": "Hold ID found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1000, 160]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Extract Hold ID').first().json.mediaUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "redirect": { "redirect": { "followRedirects": false } },
+          "response": { "response": { "responseFormat": "file", "outputPropertyName": "data" } },
+          "timeout": 30000
+        }
+      },
+      "id": "184d9b9f-d328-4ebc-a43e-9c56d43515bf",
+      "name": "Download WAHA media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1260, 80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/integrations/n8n/whatsapp/media",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formData",
+              "name": "wahaEvent",
+              "value": "={{ JSON.stringify($('WAHA inbound').first().json.body) }}"
+            },
+            {
+              "parameterType": "formData",
+              "name": "holdId",
+              "value": "={{ $('Extract Hold ID').first().json.holdId }}"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true, "neverError": true } },
+          "timeout": 30000
+        }
+      },
+      "id": "89dced13-72e6-4cc7-bc44-374b8f5b19a6",
+      "name": "Submit proof to Elysia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 80]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst status = response.statusCode ?? 200;\nif ([401, 403, 404, 409].includes(status) || status >= 500) throw new Error(`Elysia proof submission failed with ${status}`);\nconst body = response.body ?? response;\nconst sendResponse = status >= 400;\nreturn [{ json: { sendResponse, text: sendResponse ? 'I could not accept that receipt. Check that the Hold ID is yours and still active, then try again with a JPEG, PNG, WebP, or PDF.' : body.text } }];"
+      },
+      "id": "163f5a6c-570f-4c1a-872a-03d5b186e1b7",
+      "name": "Format proof response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "a668093d-9a62-4689-8ceb-b92746cd991d",
+              "leftValue": "={{ $json.sendResponse }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e1e746bd-f85f-45cf-a89f-a19e63812d4a",
+      "name": "Needs direct response",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2040, 80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://waha:3000/api/sendText",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ session: 'default', chatId: $('WAHA inbound').first().json.body.payload.from, text: $json.text }) }}",
+        "options": { "timeout": 12000 }
+      },
+      "id": "57e98465-b1f4-4904-ad49-30d5af01ebfb",
+      "name": "Send WhatsApp response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2300, 300]
+    }
+  ],
+  "connections": {
+    "WAHA inbound": {
+      "main": [[{ "node": "Has media", "type": "main", "index": 0 }]]
+    },
+    "Has media": {
+      "main": [
+        [{ "node": "Extract Hold ID", "type": "main", "index": 0 }],
+        [{ "node": "Map WAHA message in Elysia", "type": "main", "index": 0 }]
+      ]
+    },
+    "Map WAHA message in Elysia": {
+      "main": [[{ "node": "Run Elysia assistant", "type": "main", "index": 0 }]]
+    },
+    "Extract Hold ID": {
+      "main": [[{ "node": "Hold ID found", "type": "main", "index": 0 }]]
+    },
+    "Hold ID found": {
+      "main": [
+        [{ "node": "Download WAHA media", "type": "main", "index": 0 }],
+        [{ "node": "Send WhatsApp response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download WAHA media": {
+      "main": [[{ "node": "Submit proof to Elysia", "type": "main", "index": 0 }]]
+    },
+    "Submit proof to Elysia": {
+      "main": [[{ "node": "Format proof response", "type": "main", "index": 0 }]]
+    },
+    "Format proof response": {
+      "main": [[{ "node": "Needs direct response", "type": "main", "index": 0 }]]
+    },
+    "Needs direct response": {
+      "main": [[{ "node": "Send WhatsApp response", "type": "main", "index": 0 }], []]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "2815ae35-ad53-413c-a982-0c73a29781e8",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

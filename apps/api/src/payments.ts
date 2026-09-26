@@ -1,4 +1,4 @@
-import { pool, zenstack } from '@repo/db'
+import { persistWhatsAppNotification, pool, zenstack } from '@repo/db'
 import { ulid } from 'ulid'
 import { materializeBooking } from './bookings'
 import { notifyWhatsApp } from './notifications'
@@ -95,6 +95,12 @@ const store: PaymentStore = {
          VALUES ($1, $2, 'payment.submitted', 'Payment', $3, $4, $5)`,
         [ulid(), input.organizationId, result.rows[0].id, JSON.stringify({ customerRef: input.customerRef }), now],
       )
+      await persistWhatsAppNotification(client, {
+        organizationId: input.organizationId,
+        eventKey: `payment:${result.rows[0].id}:submitted`,
+        customerRef: input.customerRef,
+        text: `Payment proof for Hold ${input.holdId} was received and is pending Owner review. The seats remain reserved while it is reviewed.`,
+      }, now)
       await client.query('COMMIT')
       return result.rows[0]
     } catch (error) {
@@ -135,12 +141,18 @@ const store: PaymentStore = {
         [id, actor.organizationId, review.status, review.status === 'REJECTED' ? review.reason : null, actor.userId, now],
       )
       if (review.status === 'APPROVED') {
-        await materializeBooking(client, {
+        const booking = await materializeBooking(client, {
           paymentId: id,
           organizationId: actor.organizationId,
           actorId: actor.userId,
           now,
         })
+        await persistWhatsAppNotification(client, {
+          organizationId: actor.organizationId,
+          eventKey: `booking:${id}:confirmed`,
+          customerRef: current.rows[0].customerRef,
+          text: `Your payment was approved. Booking ${booking.id} is confirmed.${booking.invoice ? ` Total: ${booking.invoice.amount} ${booking.invoice.currency}.` : ''}`,
+        }, now)
       } else {
         await client.query(
           `UPDATE "hold" SET status = 'CANCELLED', "updatedAt" = $3
@@ -152,6 +164,12 @@ const store: PaymentStore = {
            VALUES ($1, $2, $3, 'payment.rejected', 'Payment', $4, $5, $6)`,
           [ulid(), actor.organizationId, actor.userId, id, JSON.stringify({ reason: review.reason }), now],
         )
+        await persistWhatsAppNotification(client, {
+          organizationId: actor.organizationId,
+          eventKey: `payment:${id}:rejected`,
+          customerRef: current.rows[0].customerRef,
+          text: `Your Payment was rejected: ${review.reason}. The Hold seats were released. Please create a new Hold to try again.`,
+        }, now)
       }
       const updated = await client.query<PaymentRecord>(
         `SELECT id, "organizationId", "holdId", "customerRef", "proofKey", status, "rejectionReason", "submittedAt", "reviewedAt"
@@ -183,10 +201,20 @@ async function requireOwner(actor: PaymentActor, paymentStore: PaymentStore): Pr
 
 export function createPaymentService(paymentStore: PaymentStore = store, notify: NotificationSink = notifyWhatsApp) {
   return {
+    async getForCustomer(organizationId: string, customerRef: string, id?: string): Promise<Payment | null> {
+      const result = await pool.query<Payment>(
+        `SELECT id, "organizationId", "holdId", "customerRef", status, "rejectionReason", "submittedAt", "reviewedAt"
+         FROM "payment" WHERE "organizationId" = $1 AND "customerRef" = $2
+         ${id ? 'AND id = $3' : ''} ORDER BY "submittedAt" DESC LIMIT 1`,
+        id ? [organizationId, customerRef, id] : [organizationId, customerRef],
+      )
+      return result.rows[0] ?? null
+    },
+
     async submit(input: SubmitPaymentInput): Promise<Payment> {
       validate(input)
       const payment = publicPayment(await paymentStore.submit(input))
-      notify({ eventKey: `payment:${payment.id}:submitted`, customerRef: payment.customerRef, text: `Payment proof received for Hold ${payment.holdId}.` })
+      notify({ organizationId: payment.organizationId, eventKey: `payment:${payment.id}:submitted`, customerRef: payment.customerRef, text: `Payment proof for Hold ${payment.holdId} was received and is pending Owner review. The seats remain reserved while it is reviewed.` })
       return payment
     },
 
@@ -200,8 +228,8 @@ export function createPaymentService(paymentStore: PaymentStore = store, notify:
       if (review.status === 'REJECTED' && !review.reason?.trim()) throw new Error('Rejection reason is required')
       if (review.status === 'APPROVED' && review.reason) throw new Error('Approval cannot include a rejection reason')
       const payment = publicPayment(await paymentStore.review(actor, id, review, now))
-      if (payment.status === 'APPROVED') notify({ eventKey: `booking:${payment.id}:confirmed`, customerRef: payment.customerRef, text: 'Your payment was approved and your Booking is confirmed.' })
-      if (payment.status === 'REJECTED') notify({ eventKey: `payment:${payment.id}:rejected`, customerRef: payment.customerRef, text: `Your Payment was rejected: ${payment.rejectionReason}. The Hold seats were released. Please create a new Hold to try again.` })
+      if (payment.status === 'APPROVED') notify({ organizationId: payment.organizationId, eventKey: `booking:${payment.id}:confirmed`, customerRef: payment.customerRef, text: 'Your payment was approved and your Booking is confirmed.' })
+      if (payment.status === 'REJECTED') notify({ organizationId: payment.organizationId, eventKey: `payment:${payment.id}:rejected`, customerRef: payment.customerRef, text: `Your Payment was rejected: ${payment.rejectionReason}. The Hold seats were released. Please create a new Hold to try again.` })
       return payment
     },
 

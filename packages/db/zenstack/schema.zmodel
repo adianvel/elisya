@@ -100,6 +100,7 @@ model Organization {
     auditEvents       AuditEvent[]
     vehicles          Vehicle[]
     integrationEvents IntegrationEvent[]
+    whatsappOutbox    WhatsAppOutbox[]
 
     @@map('organization')
 }
@@ -290,6 +291,21 @@ model IntegrationEvent {
 
     @@index([organizationId, customerRef, createdAt])
     @@map('integrationEvent')
+}
+
+model WhatsAppOutbox {
+    id             String       @id
+    organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+    organizationId String
+    eventKey       String
+    customerRef    String
+    text           String
+    sentAt         DateTime?
+    createdAt      DateTime     @default(now())
+
+    @@unique([organizationId, eventKey])
+    @@index([organizationId, sentAt, createdAt])
+    @@map('whatsappOutbox')
 }
 
 model OrganizationRole {

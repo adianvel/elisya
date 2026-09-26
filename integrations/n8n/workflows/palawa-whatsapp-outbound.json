@@ -1,0 +1,53 @@
+{
+  "name": "Palawa WhatsApp outbound",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "palawa/whatsapp/outbound",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "f870f30b-5b03-46f6-bc9d-ddf934988dc7",
+      "name": "Outbound notification",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [240, 300],
+      "webhookId": "59d97402-2b40-474b-90ef-0b0f0a8a7d18"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://waha:3000/api/sendText",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ session: 'default', chatId: String($json.customerRef).replace(/^\\+/, '') + '@c.us', text: $json.text }) }}",
+        "options": {
+          "timeout": 12000
+        }
+      },
+      "id": "f6b55dd9-524b-455a-90d7-16c48bf3279b",
+      "name": "Send WhatsApp text",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 300]
+    }
+  ],
+  "connections": {
+    "Outbound notification": {
+      "main": [[{ "node": "Send WhatsApp text", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "13be690d-8a8b-4a89-9ac4-25e60d64719c",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

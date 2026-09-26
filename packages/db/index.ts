@@ -9,6 +9,7 @@ export type { ZenStackClient, ModelResult } from '@zenstackhq/orm';
 
 export type * from '@zenstackhq/schema'
 export type * from '@zenstackhq/orm';
+export { persistWhatsAppNotification, type WhatsAppNotification } from './whatsapp-outbox';
 
 export const schema = _schema;
 

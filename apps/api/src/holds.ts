@@ -1,4 +1,4 @@
-import { pool } from '@repo/db'
+import { persistWhatsAppNotification, pool, type WhatsAppNotification } from '@repo/db'
 import { ulid } from 'ulid'
 import { notifyWhatsApp } from './notifications'
 import { RESERVED_SEATS_BY_TRIP } from './reserved-seats'
@@ -34,13 +34,22 @@ export type HoldStore = {
 }
 
 export const HOLD_TTL_MS = 15 * 60 * 1000
-export type NotificationSink = (input: { eventKey: string; customerRef: string; text: string }) => void
+export type NotificationSink = (input: WhatsAppNotification) => void
+
+function holdCreatedText(hold: Hold): string {
+  const total = hold.priceAtHold === null ? '' : ` Total due: ${hold.priceAtHold * hold.seatCount} ${hold.currencyAtHold ?? ''}.`
+  return `Your Hold ${hold.id} is active for ${hold.seatCount} seat(s) until ${hold.expiresAt.toISOString()}.${total}`
+}
 
 const EXPIRE_UNPAID_HOLDS_SQL = `UPDATE "hold" h SET status = 'EXPIRED', "updatedAt" = $2
   WHERE h."organizationId" = $1 AND h.status = 'ACTIVE' AND h."expiresAt" <= $2
     AND NOT EXISTS (
       SELECT 1 FROM "payment" p
       WHERE p."organizationId" = h."organizationId" AND p."holdId" = h.id AND p.status = 'PENDING'
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM "booking" b
+      WHERE b."organizationId" = h."organizationId" AND b."holdId" = h.id AND b.status = 'CONFIRMED'
     )
   RETURNING h.id, h."customerRef"`
 
@@ -99,6 +108,14 @@ const store: HoldStore = {
 
       const expired = await client.query<HoldAuditEntry>(EXPIRE_UNPAID_HOLDS_SQL, [input.organizationId, now])
       await auditHoldChanges(client, input.organizationId, 'hold.expired', expired.rows, now)
+      for (const row of expired.rows) {
+        await persistWhatsAppNotification(client, {
+          organizationId: input.organizationId,
+          eventKey: `hold:${row.id}:expired`,
+          customerRef: row.customerRef,
+          text: `Your Hold ${row.id} expired and its seats are available again.`,
+        }, now)
+      }
       const existing = await client.query<Hold>(
         `SELECT id, "organizationId", "tripId", "customerRef", "seatCount", "priceAtHold", "currencyAtHold", status, "expiresAt"
          FROM "hold"
@@ -130,6 +147,12 @@ const store: HoldStore = {
         [hold.id, input.organizationId, input.tripId, input.customerRef, input.seatCount, trip.rows[0].price, trip.rows[0].currency, hold.expiresAt, input.idempotencyKey, now],
       )
       await auditHoldChanges(client, input.organizationId, 'hold.created', [result.rows[0]], now)
+      await persistWhatsAppNotification(client, {
+        organizationId: input.organizationId,
+        eventKey: `hold:${result.rows[0].id}`,
+        customerRef: result.rows[0].customerRef,
+        text: holdCreatedText(result.rows[0]),
+      }, now)
       await client.query('COMMIT')
       return result.rows[0]
     } catch (error) {
@@ -146,6 +169,14 @@ const store: HoldStore = {
       await client.query('BEGIN')
       const expired = await client.query<HoldAuditEntry>(EXPIRE_UNPAID_HOLDS_SQL, [organizationId, now])
       await auditHoldChanges(client, organizationId, 'hold.expired', expired.rows, now)
+      for (const row of expired.rows) {
+        await persistWhatsAppNotification(client, {
+          organizationId,
+          eventKey: `hold:${row.id}:expired`,
+          customerRef: row.customerRef,
+          text: `Your Hold ${row.id} expired and its seats are available again.`,
+        }, now)
+      }
       await client.query('COMMIT')
       return expired.rows.length
     } catch (error) {
@@ -203,6 +234,12 @@ const store: HoldStore = {
         [id, organizationId, now],
       )
       await auditHoldChanges(client, organizationId, 'hold.cancelled', [cancelled.rows[0]], now)
+      await persistWhatsAppNotification(client, {
+        organizationId,
+        eventKey: `hold:${id}:cancelled`,
+        customerRef: cancelled.rows[0].customerRef,
+        text: `Your Hold ${id} was cancelled. Its seats are available again.`,
+      }, now)
       await client.query('COMMIT')
       return cancelled.rows[0]
     } catch (error) {
@@ -219,7 +256,7 @@ export function createHoldService(holdStore: HoldStore = store, notify: Notifica
     async create(input: CreateHoldInput): Promise<Hold> {
       validate(input)
       const hold = await holdStore.create(input)
-      notify({ eventKey: `hold:${hold.id}`, customerRef: hold.customerRef, text: `Your Hold ${hold.id} is active until ${hold.expiresAt.toISOString()}.` })
+      notify({ organizationId: hold.organizationId, eventKey: `hold:${hold.id}`, customerRef: hold.customerRef, text: holdCreatedText(hold) })
       return hold
     },
 
@@ -227,9 +264,13 @@ export function createHoldService(holdStore: HoldStore = store, notify: Notifica
       return holdStore.expire(organizationId, now)
     },
 
-    cancel(organizationId: string, id: string, customerRef: string, now = new Date()): Promise<Hold | null> {
+    async cancel(organizationId: string, id: string, customerRef: string, now = new Date()): Promise<Hold | null> {
       if (!organizationId || !id || !customerRef) throw new Error('organizationId, id, and customerRef are required')
-      return holdStore.cancel(organizationId, id, customerRef, now)
+      const hold = await holdStore.cancel(organizationId, id, customerRef, now)
+      if (hold?.status === 'CANCELLED') {
+        notify({ organizationId, eventKey: `hold:${id}:cancelled`, customerRef, text: `Your Hold ${id} was cancelled. Its seats are available again.` })
+      }
+      return hold
     },
 
     async get(organizationId: string, id: string, now = new Date()): Promise<Hold | null> {

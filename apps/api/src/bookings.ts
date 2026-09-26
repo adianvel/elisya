@@ -129,10 +129,11 @@ const SELECT_BOOKING = `SELECT b.id, b."organizationId", b."holdId", b."tripId",
 
 export function createBookingService() {
   return {
-    async getForCustomer(organizationId: string, customerRef: string, id: string): Promise<Booking | null> {
+    async getForCustomer(organizationId: string, customerRef: string, id?: string): Promise<Booking | null> {
       const result = await pool.query<Booking & { invoiceId?: string; invoiceAmount?: number; invoiceCurrency?: string; invoiceStatus?: 'ISSUED'; invoiceIssuedAt?: Date }>(
-        `${SELECT_BOOKING} WHERE b.id = $1 AND b."organizationId" = $2 AND b."customerRef" = $3`,
-        [id, organizationId, customerRef],
+        `${SELECT_BOOKING} WHERE b."organizationId" = $1 AND b."customerRef" = $2
+         ${id ? 'AND b.id = $3' : ''} ORDER BY b."createdAt" DESC LIMIT 1`,
+        id ? [organizationId, customerRef, id] : [organizationId, customerRef],
       )
       return result.rows[0] ? mapBooking(result.rows[0]) : null
     },
