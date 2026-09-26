@@ -57,7 +57,9 @@ jobs:
           curl -fsS http://127.0.0.1:9000/favicon.ico >/dev/null
       - run: cp .env.example .env
       - run: bun install --frozen-lockfile
-      - run: bun run db:generate
+      - name: Generate database types
+        working-directory: packages/db
+        run: bun --env-file=../../.env zen generate
       - run: bun run db:migrate
       - name: Confirm migrations are repeatable
         run: bun run db:migrate
