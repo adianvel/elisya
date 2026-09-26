@@ -11,12 +11,13 @@ const trip = (overrides: Partial<Trip> = {}): Trip => ({
   currency: 'IDR',
   seatQuota: 10,
   status: 'PUBLISHED',
+  vehicleId: null,
   ...overrides,
 })
 
 const store = (trips: Trip[], ownerIds = ['owner-1'], reservedSeats: Record<string, number> = {}): TripStore => ({
   isOwner: async (userId, organizationId) => organizationId === 'business-1' && ownerIds.includes(userId),
-  create: async (input) => {
+  create: async (_actorId, input) => {
     const created = trip({ ...input, id: `trip-${trips.length + 1}` })
     trips.push(created)
     return created

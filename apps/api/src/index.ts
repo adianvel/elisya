@@ -13,6 +13,7 @@ import { payments } from './payments';
 import { bookings } from './bookings';
 import { cancellations, refunds } from './cancellations';
 import { dashboard } from './dashboard';
+import { vehicles } from './vehicles';
 import { handleWhatsAppInbound, isN8nWebhookAuthorized, mapWhatsAppInbound, WhatsAppSenderError } from './integrations';
 import { handleWhatsAppMedia, mapWhatsAppMediaInbound, MAX_PAYMENT_PROOF_BYTES, WhatsAppMediaInputError, WhatsAppMediaProcessingError } from './whatsapp-media';
 import { enqueueTask, stopTasks } from "./lib/tasks";
@@ -237,6 +238,7 @@ const app = new Elysia()
           ...(body.currency === undefined ? {} : { currency: body.currency }),
           ...(body.seatQuota === undefined ? {} : { seatQuota: body.seatQuota }),
           ...(body.status === undefined ? {} : { status: body.status }),
+          ...(body.vehicleId === undefined ? {} : { vehicleId: body.vehicleId }),
         }
         return trips.update(actor, params.id, changes)
       }, {
@@ -250,6 +252,7 @@ const app = new Elysia()
           currency: t.Optional(t.String({ minLength: 3, maxLength: 3 })),
           seatQuota: t.Optional(t.Integer({ minimum: 1 })),
           status: t.Optional(t.Union([t.Literal('DRAFT'), t.Literal('PUBLISHED'), t.Literal('ARCHIVED')])),
+          vehicleId: t.Optional(t.Union([t.String({ minLength: 1 }), t.Null()])),
         }),
         auth: true,
       })
@@ -365,6 +368,41 @@ const app = new Elysia()
         body: t.Object({
           transferDate: t.String({ format: 'date-time' }),
           transferReference: t.String({ minLength: 1, maxLength: 255 }),
+        }),
+        auth: true,
+      })
+  )
+  .group('/vehicles', (app) =>
+    app
+      .get('/manage', async ({ query, user, members, status }) => {
+        const actor = ownerActor(user, query.organizationId, members)
+        if (!actor) return status(403)
+        return vehicles.list(actor)
+      }, {
+        query: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+        auth: true,
+      })
+      .post('/', async ({ body, user, members, status }) => {
+        const actor = ownerActor(user, body.organizationId, members)
+        if (!actor) return status(403)
+        return vehicles.create(actor, { name: body.name, plateNumber: body.plateNumber })
+      }, {
+        body: t.Object({
+          organizationId: t.String({ minLength: 1 }),
+          name: t.String({ minLength: 1, maxLength: 100 }),
+          plateNumber: t.String({ minLength: 1, maxLength: 32 }),
+        }),
+        auth: true,
+      })
+      .patch('/:id/status', async ({ params, body, user, members, status }) => {
+        const actor = ownerActor(user, body.organizationId, members)
+        if (!actor) return status(403)
+        return vehicles.updateStatus(actor, params.id, body.status)
+      }, {
+        params: t.Object({ id: t.String({ minLength: 1 }) }),
+        body: t.Object({
+          organizationId: t.String({ minLength: 1 }),
+          status: t.Union([t.Literal('AVAILABLE'), t.Literal('ASSIGNED'), t.Literal('MAINTENANCE')]),
         }),
         auth: true,
       })

@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'bun:test'
 import { createDashboardService, type DashboardStore, type MoneyflowSummary, type OperationsSummary } from './dashboard'
 
-const operations: OperationsSummary = { trips: [], activeHolds: [], confirmedBookings: [], vehicles: [] }
+const operations: OperationsSummary = {
+  trips: [], activeHolds: [], confirmedBookings: [], pendingPaymentReviews: [], cancellationCases: [], vehicles: [],
+}
 const moneyflow: MoneyflowSummary = {
   payments: { PENDING: 1, APPROVED: 2, REJECTED: 0, REFUND_PENDING: 0, REFUNDED: 0 },
   invoiceCount: 2,
-  confirmedAmount: 300000,
+  invoiceTotals: [{ currency: 'IDR', count: 2, amount: 300000 }],
+  approvedPaymentTotals: [{ currency: 'IDR', count: 2, amount: 300000 }],
+  refundTotals: [],
   invoices: [],
+  refunds: [],
   auditEvents: [],
 }
 
