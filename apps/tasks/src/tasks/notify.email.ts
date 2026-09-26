@@ -14,17 +14,11 @@ export const notifyEmail = task({
   retryDelay: 10,
   retryBackoff: true,
 
-  async run(payload, context) {
-    console.log({
-      task: 'notify.email',
-      jobId: context.job.id,
-      to: payload.to,
-      subject: payload.subject,
-    })
+  async run(_payload, context) {
+    console.log({ task: 'notify.email', jobId: context.job.id })
 
     // TODO:
     // gunakan packages/email di sini
 
-    console.log(`Sending email to ${payload.to}`)
   },
 })

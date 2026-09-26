@@ -30,7 +30,7 @@ model User {
     posts               Post[]
     notifications       Notification[]
 
-    @@allow('read', auth() != null)
+    @@allow('read', auth() != null && auth().id == id)
 
     @@map('user')
 }
@@ -454,13 +454,24 @@ model Post {
     status         PostStatus    @default(DRAFT)
     publishedAt    DateTime?
     author         User?         @relation(fields: [authorId], references: [id], onDelete: Cascade)
-    authorId       String?
+    authorId       String?       @deny('update', true)
     organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-    organizationId String?
+    organizationId String?       @deny('update', true)
     createdAt      DateTime      @default(now())
     updatedAt      DateTime      @updatedAt
 
-    @@allow('all', true)
+    @@allow('create', auth() != null && authorId == auth().id && (
+        (organizationId != null && organization.members?[userId == auth().id && role == 'owner' && user.twoFactorEnabled == true]) ||
+        organizationId == null
+    ))
+    @@allow('read,delete', auth() != null && (
+        (organizationId != null && organization.members?[userId == auth().id && role == 'owner' && user.twoFactorEnabled == true]) ||
+        (organizationId == null && authorId == auth().id)
+    ))
+    @@allow('update', auth() != null && (
+        (organizationId != null && organization.members?[userId == auth().id && role == 'owner' && user.twoFactorEnabled == true]) ||
+        (organizationId == null && authorId == auth().id)
+    ))
 
     @@index([organizationId, status])
     @@index([authorId])

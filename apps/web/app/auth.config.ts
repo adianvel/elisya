@@ -7,6 +7,6 @@ export default defineClientAuth({
   plugins: [
     organizationClient(),
     adminClient(),
-    twoFactorClient()
+    twoFactorClient({ twoFactorPage: '/auth/two-factor' })
   ]
 })

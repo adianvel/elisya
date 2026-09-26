@@ -33,6 +33,11 @@ const items = computed<DropdownMenuItem[][]>(() => [
       to: '/account'
     },
     {
+      label: 'Security',
+      icon: 'i-lucide-shield-check',
+      to: '/account/security'
+    },
+    {
       label: 'Billing',
       icon: 'i-lucide-credit-card',
       disabled: true

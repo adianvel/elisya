@@ -3,7 +3,11 @@ import { enqueueTask } from './lib/tasks'
 
 export function notifyWhatsApp(input: WhatsAppNotification): void {
   void enqueuePersistedNotification(input).catch((error) => {
-    console.error({ task: 'notify.whatsapp', eventKey: input.eventKey, err: error }, 'notification enqueue failed')
+    console.error({
+      task: 'notify.whatsapp',
+      eventKey: input.eventKey,
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    }, 'notification enqueue failed')
   })
 }
 

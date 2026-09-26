@@ -18,6 +18,13 @@ const links = [[{
   }
 },
 {
+  label: 'Security',
+  icon: 'i-lucide-shield-check',
+  to: '/account/security',
+  onSelect: () => {
+    open.value = false
+  }
+}, {
   label: 'Preferences',
   icon: 'i-lucide-settings-2',
   kbds: [',']

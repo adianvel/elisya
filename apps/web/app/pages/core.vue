@@ -2,6 +2,15 @@
 import type { NavigationMenuItem } from '@nuxt/ui/runtime/components/NavigationMenu.vue.js'
 
 const open = ref(false)
+const authClient = useAuthClient()
+const activeMemberRole = authClient?.useActiveMemberRole()
+const { user } = useUserSession()
+
+watch([() => activeMemberRole?.value?.data?.role, () => user.value?.twoFactorEnabled], ([role, twoFactorEnabled]) => {
+  if (import.meta.client && role === 'owner' && twoFactorEnabled !== true) {
+    void navigateTo('/account/security')
+  }
+}, { immediate: true })
 
 const links = [[{
   label: 'Dashboard',

@@ -1,6 +1,7 @@
-import { persistWhatsAppNotification, pool, zenstack } from '@repo/db'
+import { persistWhatsAppNotification, pool } from '@repo/db'
 import { ulid } from 'ulid'
 import { writeAuditEvent } from './audit'
+import { requireOwner } from './authz'
 import { notifyWhatsApp } from './notifications'
 import type { NotificationSink } from './holds'
 
@@ -57,12 +58,6 @@ const SELECT_REFUND = `SELECT id, "organizationId", "bookingId", "paymentId", "c
 
 function isUniqueViolation(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === '23505')
-}
-
-async function requireOwner(actor: CancellationActor): Promise<void> {
-  if (!await zenstack.member.findFirst({ where: { userId: actor.userId, organizationId: actor.organizationId, role: 'owner' }, select: { id: true } })) {
-    throw new Error('Owner access required')
-  }
 }
 
 async function findRefundForCancellation(client: { query<T>(text: string, values?: unknown[]): Promise<{ rows: T[] }> }, cancellation: CancellationRequest): Promise<Refund | null> {

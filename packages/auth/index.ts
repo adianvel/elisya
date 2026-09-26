@@ -7,13 +7,29 @@ import { logger } from '@repo/logger';
 import { zenstack } from '@repo/db';
 import { ac, owner, admin } from './permissions';
 
+export async function revokeSessionsBeforeTwoFactorEnable(userId: string): Promise<void> {
+  await zenstack.session.deleteMany({ where: { userId } })
+}
+
 export const auth = betterAuth({
   basePath: '/auth',
   database: zenstackAdapter(zenstack, {
     provider: 'postgresql',
   }),
   onAPIError: {
-    onError: (err) => logger.auth.error({ err }, 'Auth API error'),
+    onError: (err) => logger.auth.error({ errorName: err instanceof Error ? err.name : 'UnknownError' }, 'Auth API error'),
+  },
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 120,
+    customRules: {
+      '/sign-in/email': { window: 60, max: 5 },
+      '/sign-up/email': { window: 60, max: 5 },
+      '/request-password-reset': { window: 60, max: 5 },
+      '/reset-password': { window: 60, max: 10 },
+      '/send-verification-email': { window: 60, max: 5 },
+    },
   },
   trustedOrigins: [
     String(process.env.APP_URL), String(process.env.API_URL)
@@ -77,7 +93,7 @@ export const auth = betterAuth({
         })
       },
     }),
-    twoFactor(),
+    twoFactor({ issuer: 'Palawa', trustDeviceMaxAge: 0 }),
   ],
   emailVerification: {
     sendOnSignUp: true,
@@ -90,6 +106,15 @@ export const auth = betterAuth({
     }
   },
   databaseHooks: {
+    user: {
+      update: {
+        before: async (user, context) => {
+          if (user.twoFactorEnabled !== true) return
+          const userId = context?.context?.session?.user?.id
+          if (userId) await revokeSessionsBeforeTwoFactorEnable(userId)
+        },
+      },
+    },
     session: {
       create: {
         before: async (session) => {
