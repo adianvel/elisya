@@ -47,11 +47,11 @@ describe('WhatsApp Payment proof uploads', () => {
     }, 'hold-1', await jpeg())
 
     expect(mapped).toMatchObject({ eventId: 'waha-media-3', sender: '628123456789@c.us', holdId: 'hold-1' })
-    expect(() => mapWhatsAppMediaInbound({ event: 'message', payload: { id: 'waha-media-4', from: '628123456789@c.us', hasMedia: false } }, 'hold-1', new File([], 'empty.jpg', { type: 'image/jpeg' })))
+    expect(() => mapWhatsAppMediaInbound({ event: 'message', payload: { id: 'waha-media-4', from: '628123456789@c.us', fromMe: false, hasMedia: false } }, 'hold-1', new File([], 'empty.jpg', { type: 'image/jpeg' })))
       .toThrow('WAHA event has no media')
-    expect(() => mapWhatsAppMediaInbound({ event: 'message', payload: { id: 'waha-media-5', from: '628123456789@c.us', hasMedia: true, media: { url: null } } }, 'hold-1', new File([], 'empty.jpg', { type: 'image/jpeg' })))
+    expect(() => mapWhatsAppMediaInbound({ event: 'message', payload: { id: 'waha-media-5', from: '628123456789@c.us', fromMe: false, hasMedia: true, media: { url: null } } }, 'hold-1', new File([], 'empty.jpg', { type: 'image/jpeg' })))
       .toThrow('downloadable media file')
-    expect(() => mapWhatsAppMediaInbound({ event: 'message', payload: { id: 'waha-media-6', from: '628123456789@c.us', hasMedia: true, media: { url: 'http://waha/file.pdf', mimetype: 'application/pdf' } } }, 'hold-1', new File([], 'photo.jpg', { type: 'image/jpeg' })))
+    expect(() => mapWhatsAppMediaInbound({ event: 'message', payload: { id: 'waha-media-6', from: '628123456789@c.us', fromMe: false, hasMedia: true, media: { url: 'http://waha/file.pdf', mimetype: 'application/pdf' } } }, 'hold-1', new File([], 'photo.jpg', { type: 'image/jpeg' })))
       .toThrow('does not match the uploaded file')
   })
 

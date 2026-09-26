@@ -18,7 +18,6 @@ export type WhatsAppResponse = {
   assistantRequest?: { sender: string; messages: Array<{ role: 'user'; parts: Array<{ type: 'text'; text: string }> }> }
 }
 
-const bookingTerms = ['book', 'booking', 'trip', 'travel', 'seat', 'hold', 'pay', 'payment', 'invoice', 'status', 'jadwal', 'kursi', 'pesan', 'bayar', 'tiket', 'halo', 'hello', 'help', 'bantuan']
 const blockedTerms = ['sql', 'database', 'drop table', 'system prompt', 'ignore instructions', 'password', 'admin access', 'arbitrary code']
 
 export class WhatsAppSenderError extends Error {}
@@ -28,7 +27,6 @@ export function guardMessage(text: string): { allowed: true } | { allowed: false
   if (!normalized) return { allowed: false, reason: 'Message cannot be empty.' }
   if (normalized.length > 2000) return { allowed: false, reason: 'Message is too long.' }
   if (blockedTerms.some((term) => normalized.includes(term))) return { allowed: false, reason: 'I can only help with Palawa travel bookings.' }
-  if (!bookingTerms.some((term) => normalized.includes(term))) return { allowed: false, reason: 'I can only help with Palawa travel bookings.' }
   return { allowed: true }
 }
 
@@ -50,7 +48,7 @@ export function mapWhatsAppInbound(input: unknown): WhatsAppInbound {
   if (!event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload)) throw new Error('WhatsApp message payload is required')
   const payload = event.payload as Record<string, unknown>
   if (typeof payload.id !== 'string' || !payload.id || payload.id.length > 255) throw new Error('WhatsApp message ID is invalid')
-  if (payload.fromMe === true) throw new Error('outgoing WhatsApp messages cannot start Customer actions')
+  if (payload.fromMe !== false) throw new Error('only inbound WhatsApp messages can start Customer actions')
   if (typeof payload.from !== 'string') throw new Error('private WhatsApp sender is required')
   if (payload.body !== undefined && typeof payload.body !== 'string') throw new Error('WhatsApp message body must be text')
   const customerRef = normalizeWhatsAppSender(payload.from)

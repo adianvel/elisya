@@ -27,11 +27,13 @@ for (const definition of tasks as readonly AnyTaskDefinition[]) {
       const payload = definition.payload.parse(job.data)
       await definition.run(payload, {
         job,
-        send: (id, data) => boss.send(id, data),
+        send: (id, data, options) => boss.send(id, data, options),
       })
     }
   })
 }
+
+await boss.schedule('notify.whatsapp.outbox', '* * * * *', {}, { key: 'whatsapp-outbox' })
 
 console.log('Task worker started')
 console.log('Registered queues:', tasks.map((task) => task.id).join(', '))

@@ -456,6 +456,12 @@ export class SchemaType implements SchemaDef {
                     type: "IntegrationEvent",
                     array: true,
                     relation: { opposite: "organization" }
+                },
+                whatsappOutbox: {
+                    name: "whatsappOutbox",
+                    type: "WhatsAppOutbox",
+                    array: true,
+                    relation: { opposite: "organization" }
                 }
             },
             attributes: [
@@ -1163,6 +1169,63 @@ export class SchemaType implements SchemaDef {
             idFields: ["id"],
             uniqueFields: {
                 id: { type: "String" }
+            }
+        },
+        WhatsAppOutbox: {
+            name: "WhatsAppOutbox",
+            fields: {
+                id: {
+                    name: "id",
+                    type: "String",
+                    id: true,
+                    attributes: [{ name: "@id" }] as readonly AttributeApplication[]
+                },
+                organization: {
+                    name: "organization",
+                    type: "Organization",
+                    attributes: [{ name: "@relation", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId")]) }, { name: "references", value: ExpressionUtils.array("String", [ExpressionUtils.field("id")]) }, { name: "onDelete", value: ExpressionUtils.literal("Cascade") }] }] as readonly AttributeApplication[],
+                    relation: { opposite: "whatsappOutbox", fields: ["organizationId"], references: ["id"], onDelete: "Cascade" }
+                },
+                organizationId: {
+                    name: "organizationId",
+                    type: "String",
+                    foreignKeyFor: [
+                        "organization"
+                    ] as readonly string[]
+                },
+                eventKey: {
+                    name: "eventKey",
+                    type: "String"
+                },
+                customerRef: {
+                    name: "customerRef",
+                    type: "String"
+                },
+                text: {
+                    name: "text",
+                    type: "String"
+                },
+                sentAt: {
+                    name: "sentAt",
+                    type: "DateTime",
+                    optional: true
+                },
+                createdAt: {
+                    name: "createdAt",
+                    type: "DateTime",
+                    attributes: [{ name: "@default", args: [{ name: "value", value: ExpressionUtils.call("now") }] }] as readonly AttributeApplication[],
+                    default: ExpressionUtils.call("now") as FieldDefault
+                }
+            },
+            attributes: [
+                { name: "@@unique", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("eventKey")]) }] },
+                { name: "@@index", args: [{ name: "fields", value: ExpressionUtils.array("String", [ExpressionUtils.field("organizationId"), ExpressionUtils.field("sentAt"), ExpressionUtils.field("createdAt")]) }] },
+                { name: "@@map", args: [{ name: "name", value: ExpressionUtils.literal("whatsappOutbox") }] }
+            ] as readonly AttributeApplication[],
+            idFields: ["id"],
+            uniqueFields: {
+                id: { type: "String" },
+                organizationId_eventKey: { organizationId: { type: "String" }, eventKey: { type: "String" } }
             }
         },
         OrganizationRole: {

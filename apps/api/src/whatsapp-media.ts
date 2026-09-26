@@ -48,7 +48,7 @@ export function mapWhatsAppMediaInbound(input: unknown, holdId: string, file: Fi
   if (typeof payload.id !== 'string' || !payload.id || payload.id.length > 255 || typeof payload.from !== 'string') {
     throw new WhatsAppMediaInputError('WAHA media event has an invalid ID or sender')
   }
-  if (payload.fromMe === true) throw new WhatsAppMediaInputError('outgoing WhatsApp messages cannot submit proof')
+  if (payload.fromMe !== false) throw new WhatsAppMediaInputError('only inbound WhatsApp messages can submit proof')
   if (payload.hasMedia !== true || !payload.media || typeof payload.media !== 'object' || Array.isArray(payload.media)) {
     throw new WhatsAppMediaInputError('WAHA event has no media')
   }
@@ -264,6 +264,11 @@ export function createWhatsAppMediaHandler(dependencies: MediaDependencies = def
         customerRef,
         proofKey,
         idempotencyKey: `whatsapp:${input.eventId}`,
+      }).catch((error: unknown) => {
+        if (error instanceof Error && ['Hold not found', 'Hold does not belong to Customer', 'Hold is no longer eligible for Payment'].includes(error.message)) {
+          throw new WhatsAppMediaInputError(error.message)
+        }
+        throw error
       })
       paymentSubmitted = true
 

@@ -20,6 +20,7 @@ export type Invoice = $ModelResult<$Schema, "Invoice">;
 export type AuditEvent = $ModelResult<$Schema, "AuditEvent">;
 export type Vehicle = $ModelResult<$Schema, "Vehicle">;
 export type IntegrationEvent = $ModelResult<$Schema, "IntegrationEvent">;
+export type WhatsAppOutbox = $ModelResult<$Schema, "WhatsAppOutbox">;
 export type OrganizationRole = $ModelResult<$Schema, "OrganizationRole">;
 export type Member = $ModelResult<$Schema, "Member">;
 export type Invitation = $ModelResult<$Schema, "Invitation">;

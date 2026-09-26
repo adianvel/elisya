@@ -7,6 +7,7 @@ export type TaskContext = {
   send: <TId extends TaskId>(
     id: TId,
     payload: TaskPayload<TId>,
+    options?: { singletonKey?: string; singletonSeconds?: number },
   ) => Promise<string | null>
 }
 
